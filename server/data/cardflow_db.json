@@ -1,0 +1,43 @@
+{
+  "users": [
+    {
+      "id": "usr_325cc06c-6322-4e26-b65a-15c884e6dbdc",
+      "name": "Vinishaa",
+      "email": "vinishaareddy@gmail.com",
+      "createdAt": "2026-11-05T13:41:17.845Z",
+      "passwordHash": "8fd094916b8ecfcdfae7a4a33c1ae633:b70953694792f53164aa7f903bec535cfb2bb880e404a477e5ef5c7e09cfa2e876408ed46621cbd4decab2b992e76cb3d0f4626532bca84a5a3161a826cb5310"
+    }
+  ],
+  "sessions": {
+    "tok_d8d8a43ed97c18d94446c63f53930ac7d95d20bdd0345cd1fcf3ee88f075cd07": "usr_325cc06c-6322-4e26-b65a-15c884e6dbdc"
+  },
+  "userData": {
+    "usr_325cc06c-6322-4e26-b65a-15c884e6dbdc": {
+      "cards": [],
+      "checkingBalance": 0,
+      "currentDate": "2026-11-07",
+      "logs": [
+        {
+          "time": "15:04:57",
+          "type": "info",
+          "msg": "Initiating Plaid bank feed synchronization for all cards..."
+        },
+        {
+          "time": "15:04:18",
+          "type": "warning",
+          "msg": "Unlinked credit card: ID card-1794081846920-enk3m"
+        },
+        {
+          "time": "15:04:06",
+          "type": "success",
+          "msg": "Linked new credit card: Scotiabank Momentum Visa Infinite ending in 3140"
+        },
+        {
+          "time": "00:00:00",
+          "type": "info",
+          "msg": "All data cleared. Ready for manual entry."
+        }
+      ]
+    }
+  }
+}

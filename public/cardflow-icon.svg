@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0ea5e9" />
+      <stop offset="50%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#6366f1" />
+    </linearGradient>
+    <linearGradient id="chipGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- App Background -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+
+  <!-- Outer Card Glow -->
+  <rect x="76" y="136" width="360" height="240" rx="28" fill="none" stroke="#0ea5e9" stroke-width="4" opacity="0.4" filter="url(#glow)" />
+
+  <!-- Main Card Body -->
+  <rect x="76" y="136" width="360" height="240" rx="28" fill="url(#cardGrad)" />
+
+  <!-- Card Magnetic / Design Accents -->
+  <path d="M 76 220 Q 200 270 436 190" stroke="rgba(255,255,255,0.25)" stroke-width="4" fill="none" />
+  <path d="M 76 250 Q 220 300 436 220" stroke="rgba(255,255,255,0.15)" stroke-width="2" fill="none" />
+
+  <!-- EMV Chip -->
+  <rect x="120" y="180" width="60" height="46" rx="8" fill="url(#chipGrad)" />
+  <line x1="120" y1="203" x2="180" y2="203" stroke="rgba(0,0,0,0.3)" stroke-width="2" />
+  <line x1="150" y1="180" x2="150" y2="226" stroke="rgba(0,0,0,0.3)" stroke-width="2" />
+
+  <!-- Contactless waves -->
+  <path d="M 205 190 A 16 16 0 0 1 205 216" stroke="rgba(255,255,255,0.8)" stroke-width="3" fill="none" stroke-linecap="round" />
+  <path d="M 215 184 A 26 26 0 0 1 215 222" stroke="rgba(255,255,255,0.6)" stroke-width="3" fill="none" stroke-linecap="round" />
+  <path d="M 225 178 A 36 36 0 0 1 225 228" stroke="rgba(255,255,255,0.4)" stroke-width="3" fill="none" stroke-linecap="round" />
+
+  <!-- Bottom Brand Text -->
+  <text x="120" y="336" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="28" font-weight="700" fill="#ffffff" letter-spacing="1">CardFlow</text>
+
+  <!-- Card Dots -->
+  <circle cx="370" cy="326" r="18" fill="#f43f5e" opacity="0.9" />
+  <circle cx="394" cy="326" r="18" fill="#fbbf24" opacity="0.85" />
+</svg>

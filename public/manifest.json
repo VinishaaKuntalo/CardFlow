@@ -1,0 +1,18 @@
+{
+  "name": "CardFlow — Credit Card & Statement Manager",
+  "short_name": "CardFlow",
+  "description": "Smart credit card timeline tracker, payment buffer safety, and bank synchronization.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#090d16",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/cardflow-icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
