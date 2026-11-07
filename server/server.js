@@ -15,13 +15,14 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, '.env'), override: true });
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Avoid port 5000 which is reserved by macOS AirPlay Receiver
+// In production (Render, Railway, Heroku), use process.env.PORT assigned by host.
+// In local dev, avoid port 5000 which is reserved by macOS AirPlay Receiver.
 const rawPort = process.env.PORT;
 const PORT = (rawPort && rawPort != 5000 && rawPort != '5000') ? rawPort : 5001;
 
