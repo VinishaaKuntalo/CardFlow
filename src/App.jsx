@@ -9,6 +9,7 @@ import Timeline from './components/Timeline';
 import InboxSimulator from './components/InboxSimulator';
 import CardModal from './components/CardModal';
 import TransactionFeed from './components/TransactionFeed';
+import WhatsAppReminders from './components/WhatsAppReminders';
 import AuthPage from './components/AuthPage';
 import { API_BASE } from './config';
 
@@ -34,6 +35,7 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem('cardflow_transactions') || '[]'); }
     catch { return []; }
   });
+  const [whatsappReminders, setWhatsappReminders] = useState({ phoneNumber: '', optedIn: false, enabled: false });
   const [checkingBalance, setCheckingBalance] = useState(() => {
     const saved = localStorage.getItem('cardflow_checking');
     return saved ? parseFloat(saved) : 0;
@@ -68,6 +70,7 @@ export default function App() {
         const data = await res.json();
         if (data.cards) setCards(data.cards);
         setTransactions(data.transactions || []);
+        setWhatsappReminders(data.whatsappReminders || { phoneNumber: '', optedIn: false, enabled: false });
         if (data.checkingBalance !== undefined) setCheckingBalance(data.checkingBalance);
         if (data.currentDate) setCurrentDate(data.currentDate);
         if (data.logs) setLogs(data.logs);
@@ -106,10 +109,12 @@ export default function App() {
     localStorage.removeItem('cardflow_user');
     localStorage.removeItem('cardflow_cards');
     localStorage.removeItem('cardflow_transactions');
+    localStorage.removeItem('cardflow_whatsapp_reminders');
     localStorage.removeItem('cardflow_checking');
     localStorage.removeItem('cardflow_logs');
     setCards([]);
     setTransactions([]);
+    setWhatsappReminders({ phoneNumber: '', optedIn: false, enabled: false });
   };
 
   // Save changes locally and sync back to user account in database
@@ -146,6 +151,7 @@ export default function App() {
         body: JSON.stringify({
           cards,
           transactions,
+          whatsappReminders,
           checkingBalance,
           currentDate,
           logs
@@ -153,7 +159,7 @@ export default function App() {
       }).catch(err => console.error('Failed to autosave user data:', err));
     }, 600);
     return () => clearTimeout(timer);
-  }, [cards, transactions, checkingBalance, currentDate, logs, authToken, currentUser]);
+  }, [cards, transactions, whatsappReminders, checkingBalance, currentDate, logs, authToken, currentUser]);
 
   // Buffer Calculation: Find all unpaid statement balances due in the next 10 days
   const getBufferMetrics = () => {
@@ -922,6 +928,8 @@ export default function App() {
           />
 
           <TransactionFeed transactions={transactions} cards={cards} />
+
+          <WhatsAppReminders settings={whatsappReminders} onSave={setWhatsappReminders} />
 
           {/* Device Sync & Backup Manager */}
           <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '16px' }}>

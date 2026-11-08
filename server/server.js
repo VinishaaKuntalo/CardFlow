@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
@@ -10,7 +11,8 @@ import {
   getUserByToken,
   logoutUser,
   getUserData,
-  saveUserData
+  saveUserData,
+  getAllUsersWithData
 } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -19,7 +21,7 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ verify: (req, res, buffer) => { req.rawBody = buffer; } }));
 
 // In production (Render, Railway, Heroku), use process.env.PORT assigned by host.
 // In local dev, avoid port 5000 which is reserved by macOS AirPlay Receiver.
@@ -90,6 +92,152 @@ app.get('/api/user/data', requireAuth, (req, res) => {
 app.post('/api/user/data', requireAuth, (req, res) => {
   const updated = saveUserData(req.user.id, req.body);
   res.json(updated);
+});
+
+const whatsappConfig = {
+  accessToken: (process.env.WHATSAPP_ACCESS_TOKEN || '').trim(),
+  phoneNumberId: (process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim(),
+  templateName: (process.env.WHATSAPP_TEMPLATE_NAME || '').trim(),
+  templateLanguage: (process.env.WHATSAPP_TEMPLATE_LANGUAGE || 'en_US').trim(),
+  graphVersion: (process.env.WHATSAPP_GRAPH_API_VERSION || '').trim(),
+  cronSecret: (process.env.WHATSAPP_CRON_SECRET || '').trim(),
+  webhookVerifyToken: (process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || '').trim(),
+  metaAppSecret: (process.env.META_APP_SECRET || '').trim()
+};
+const whatsappApiConfigured = Boolean(
+  whatsappConfig.accessToken && whatsappConfig.phoneNumberId && whatsappConfig.templateName && whatsappConfig.graphVersion
+);
+
+app.get('/api/whatsapp/status', (req, res) => {
+  res.json({
+    apiConfigured: whatsappApiConfigured,
+    scheduledJobConfigured: Boolean(whatsappConfig.cronSecret && process.env.WHATSAPP_REMINDER_JOB_ENABLED === 'true'),
+    webhookConfigured: Boolean(whatsappConfig.webhookVerifyToken && whatsappConfig.metaAppSecret)
+  });
+});
+
+app.get('/api/whatsapp/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const verifyToken = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (whatsappConfig.webhookVerifyToken && mode === 'subscribe' && verifyToken === whatsappConfig.webhookVerifyToken && challenge) {
+    return res.status(200).send(challenge);
+  }
+  res.sendStatus(403);
+});
+
+app.post('/api/whatsapp/webhook', (req, res) => {
+  const signature = req.get('x-hub-signature-256') || '';
+  const expected = `sha256=${crypto.createHmac('sha256', whatsappConfig.metaAppSecret).update(req.rawBody || '').digest('hex')}`;
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (!whatsappConfig.metaAppSecret || actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) {
+    return res.sendStatus(401);
+  }
+
+  const optOutWords = new Set(['stop', 'stop all', 'unsubscribe', 'cancel', 'end', 'quit']);
+  const messages = (req.body.entry || []).flatMap(entry => entry.changes || [])
+    .flatMap(change => change.value?.messages || []);
+  const phoneNumbersToDisable = new Set(messages
+    .filter(message => message.type === 'text' && optOutWords.has((message.text?.body || '').trim().toLowerCase()))
+    .map(message => String(message.from || '').replace(/\D/g, ''))
+    .filter(Boolean));
+
+  if (phoneNumbersToDisable.size) {
+    for (const user of getAllUsersWithData()) {
+      const currentPhone = String(user.data.whatsappReminders?.phoneNumber || '').replace(/\D/g, '');
+      if (currentPhone && phoneNumbersToDisable.has(currentPhone)) {
+        saveUserData(user.id, {
+          whatsappReminders: { ...user.data.whatsappReminders, enabled: false, optedIn: false }
+        });
+      }
+    }
+  }
+
+  res.sendStatus(200);
+});
+
+const sendWhatsAppReminder = async ({ recipient, card, daysUntilDue }) => {
+  const dueDate = new Date(`${card.statementDueDate}T00:00:00Z`).toLocaleDateString('en-CA', {
+    timeZone: 'UTC', month: 'long', day: 'numeric', year: 'numeric'
+  });
+  const timing = daysUntilDue === 0 ? 'today' : `in ${daysUntilDue} day${daysUntilDue === 1 ? '' : 's'}`;
+  const response = await fetch(`https://graph.facebook.com/${whatsappConfig.graphVersion}/${whatsappConfig.phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${whatsappConfig.accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: recipient.replace(/\D/g, ''),
+      type: 'template',
+      template: {
+        name: whatsappConfig.templateName,
+        language: { code: whatsappConfig.templateLanguage },
+        components: [{
+          type: 'body',
+          parameters: [
+            { type: 'text', text: card.name || card.bank || 'Credit card' },
+            { type: 'text', text: `$${Number(card.statementBalance).toFixed(2)}` },
+            { type: 'text', text: dueDate },
+            { type: 'text', text: timing }
+          ]
+        }]
+      }
+    })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error?.message || `WhatsApp send failed (${response.status})`);
+  return result;
+};
+
+// Called once daily by a configured external scheduler; protected by a shared secret.
+app.post('/api/jobs/whatsapp-reminders', async (req, res) => {
+  if (!whatsappConfig.cronSecret || req.get('authorization') !== `Bearer ${whatsappConfig.cronSecret}`) {
+    return res.status(401).json({ error: 'Unauthorized reminder job.' });
+  }
+  if (!whatsappApiConfigured) {
+    return res.status(503).json({ error: 'WhatsApp Cloud API is not configured.' });
+  }
+
+  const now = new Date();
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const reminderOffsets = [3, 1, 0];
+  let sent = 0;
+  let skipped = 0;
+  const failures = [];
+
+  for (const user of getAllUsersWithData()) {
+    const prefs = user.data.whatsappReminders || {};
+    if (!prefs.enabled || !prefs.optedIn || !prefs.phoneNumber) continue;
+    const sentKeys = new Set(user.data.whatsappReminderSent || []);
+    let changed = false;
+
+    for (const card of user.data.cards || []) {
+      if (!card.statementDueDate || !(Number(card.statementBalance) > 0) || card.statementStatus === 'paid') continue;
+      const dueDate = new Date(`${card.statementDueDate}T00:00:00Z`);
+      const daysUntilDue = Math.round((Date.UTC(dueDate.getUTCFullYear(), dueDate.getUTCMonth(), dueDate.getUTCDate()) - todayUtc) / 86400000);
+      if (!reminderOffsets.includes(daysUntilDue)) continue;
+
+      const key = `${card.id}:${card.statementDueDate}:${daysUntilDue}`;
+      if (sentKeys.has(key)) { skipped += 1; continue; }
+      try {
+        await sendWhatsAppReminder({ recipient: prefs.phoneNumber, card, daysUntilDue });
+        sentKeys.add(key);
+        sent += 1;
+        changed = true;
+      } catch (error) {
+        console.error(`WhatsApp reminder failed for user ${user.id}, card ${card.id}:`, error.message);
+        failures.push({ userId: user.id, cardId: card.id, error: error.message });
+      }
+    }
+
+    if (changed) saveUserData(user.id, { whatsappReminderSent: [...sentKeys] });
+  }
+
+  res.json({ sent, skipped, failures });
 });
 
 // Initialize Plaid Client

@@ -144,6 +144,15 @@ export function getUserData(userId) {
   };
 }
 
+export function getAllUsersWithData() {
+  const db = readDB();
+  return db.users.map(user => ({
+    id: user.id,
+    email: user.email,
+    data: db.userData[user.id] || {}
+  }));
+}
+
 export function saveUserData(userId, data) {
   const db = readDB();
   if (!db.userData[userId]) {
