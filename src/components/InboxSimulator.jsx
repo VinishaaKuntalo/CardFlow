@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mail, Clipboard, CheckCircle, FileText, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
+import { Mail, Clipboard, CheckCircle, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
 
 export default function InboxSimulator({ cards, onImportBill, onAddLog }) {
   const [activeTab, setActiveTab] = useState('inbox'); // 'inbox' | 'paste'
@@ -8,66 +8,8 @@ export default function InboxSimulator({ cards, onImportBill, onAddLog }) {
   const [parseError, setParseError] = useState('');
   const [expandedMailId, setExpandedMailId] = useState(null);
 
-  // Mock incoming email notifications
-  const [emails, setEmails] = useState([
-    {
-      id: 'mail-1',
-      sender: 'Chase Card Services <statements@chase.com>',
-      subject: 'Your Chase Sapphire Reserve statement is ready',
-      date: 'May 16, 2026',
-      unread: true,
-      body: 'Your monthly billing statement is now available online. \nCard ending in: *9012\nStatement Balance: $1,245.80\nMinimum Payment Due: $35.00\nPayment Due Date: June 10, 2026\n\nThank you for choosing Chase.',
-      extracted: {
-        last4: '9012',
-        balance: 1245.80,
-        dueDate: '2026-06-10',
-        minPayment: 35.00
-      }
-    },
-    {
-      id: 'mail-2',
-      sender: 'American Express <amex@email.americanexpress.com>',
-      subject: 'Important info: Your Gold Card Statement is Ready',
-      date: 'May 18, 2026',
-      unread: true,
-      body: 'Your American Express Gold Card statement is closed. \nAccount ending in: -1005\nNew Balance: $685.20\nPayment Due Date: June 12, 2026\nMinimum Amount Due: $35.00\n\nLog in to your account to review transactions.',
-      extracted: {
-        last4: '1005',
-        balance: 685.20,
-        dueDate: '2026-06-12',
-        minPayment: 35.00
-      }
-    },
-    {
-      id: 'mail-3',
-      sender: 'Capital One <capitalone@notification.capitalone.com>',
-      subject: 'Your statement is ready for Capital One Venture',
-      date: 'May 14, 2026',
-      unread: false,
-      body: 'Good news! Your Venture statement has closed. \nCard ending in: *5432\nNew Statement Balance: $2,150.00\nMinimum Payment: $75.00\nPayment Due: June 8, 2026\n\nAutopay is configured for this account.',
-      extracted: {
-        last4: '5432',
-        balance: 2150.00,
-        dueDate: '2026-06-08',
-        minPayment: 75.00
-      }
-    }
-  ]);
-
-  const handleImportMail = (email) => {
-    // Look up the card matching this last4 digits
-    const targetCard = cards.find(c => c.last4 === email.extracted.last4);
-    if (!targetCard) {
-      onAddLog(`Failed to import: No card found with last 4 digits matching "${email.extracted.last4}"`, 'danger');
-      return;
-    }
-
-    onImportBill(targetCard.id, email.extracted.balance, email.extracted.dueDate, email.extracted.minPayment);
-    
-    // Mark email as read & imported
-    setEmails(prev => prev.map(m => m.id === email.id ? { ...m, unread: false, imported: true } : m));
-    onAddLog(`Imported ${targetCard.bank} (${targetCard.last4}) statement details from email! Balance: $${email.extracted.balance}`, 'success');
-  };
+  // The app has no email provider integration, so never present fabricated mail as a real inbox.
+  const emails = [];
 
   const toggleMailExpand = (id) => {
     setExpandedMailId(expandedMailId === id ? null : id);
@@ -194,13 +136,17 @@ export default function InboxSimulator({ cards, onImportBill, onAddLog }) {
       </div>
 
       <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '-8px', marginBottom: '8px' }}>
-        Simulates how CardFlow reads electronic bills to eliminate manual input.
+        Email import is not connected yet. Paste statement text to import a bill.
       </p>
 
       {/* Tab Contents: Simulated Email Inbox */}
       {activeTab === 'inbox' && (
         <div className="inbox-list">
-          {emails.map(email => (
+          {emails.length === 0 ? (
+            <div style={{ padding: '24px 16px', color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center' }}>
+              No emails available. CardFlow does not currently connect to your email account.
+            </div>
+          ) : emails.map(email => (
             <div 
               key={email.id} 
               className={`inbox-item ${email.unread ? 'unread' : ''}`}

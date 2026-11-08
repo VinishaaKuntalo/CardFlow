@@ -273,7 +273,6 @@ const MOCK_PLAID_CARDS = {
 export default function CardModal({ card, onClose, onSave, onDelete }) {
   const [linkMode, setLinkMode] = useState('plaid'); // 'plaid' | 'manual'
   const [useRealPlaid, setUseRealPlaid] = useState(false);
-  const [backendUrl, setBackendUrl] = useState(API_BASE);
   const [linkToken, setLinkToken] = useState(null);
   const [plaidAccessToken, setPlaidAccessToken] = useState('');
   const [plaidError, setPlaidError] = useState(null);
@@ -325,7 +324,7 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
     setPlaidError(null);
     setPlaidStep('connecting');
     try {
-      const res = await fetch(`${backendUrl}/api/create_link_token`, {
+      const res = await fetch(`${API_BASE}/api/create_link_token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -337,7 +336,7 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
       setPlaidStep('launch_plaid');
     } catch (err) {
       console.error(err);
-      setPlaidError('Could not connect to backend server. Make sure server is running on port 5001.');
+      setPlaidError('Could not reach CardFlow’s bank connection service. Please try again later.');
       setPlaidStep('select_bank');
     }
   };
@@ -349,7 +348,7 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
       setPlaidError(null);
       try {
         // 1. Exchange public token
-        const exchangeRes = await fetch(`${backendUrl}/api/exchange_public_token`, {
+        const exchangeRes = await fetch(`${API_BASE}/api/exchange_public_token`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ public_token: publicToken })
@@ -360,7 +359,7 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
         setPlaidAccessToken(accessToken);
 
         // 2. Fetch credit accounts using access token
-        const syncRes = await fetch(`${backendUrl}/api/sync_accounts`, {
+        const syncRes = await fetch(`${API_BASE}/api/sync_accounts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ access_token: accessToken })
@@ -389,10 +388,7 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
           );
         };
 
-        let rawCards = (syncData.accounts || []).filter(isCreditOrCard);
-        if (rawCards.length === 0) {
-          rawCards = syncData.accounts || [];
-        }
+        const rawCards = (syncData.accounts || []).filter(isCreditOrCard);
 
         const cardsToSave = rawCards.map(acc => {
           const bankName = syncData.institution || 'Linked Bank';
@@ -433,11 +429,12 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
         });
 
         if (cardsToSave.length > 0) {
-          // Automatically save all authorized cards directly into the dashboard
-          onSave(cardsToSave);
-          onClose();
+          setSelectedBank({ name: syncData.institution || 'your bank' });
+          setAvailableCards(cardsToSave.map((c, index) => ({ ...c, tempId: c.plaidAccountId || `plaid-${index}` })));
+          setSelectedPlaidCards(Object.fromEntries(cardsToSave.map(c => [c.plaidAccountId, true])));
+          setPlaidStep('select_cards');
         } else {
-          setPlaidError('No accounts were found in this bank connection.');
+          setPlaidError('No credit card accounts were available from this bank connection. Check that Plaid supports your bank and that you authorized card accounts.');
           setPlaidStep('select_bank');
         }
       } catch (err) {
@@ -700,18 +697,6 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
                       Log in to your bank securely using the official Plaid credential interface.
                     </p>
                     
-                    <div style={{ marginBottom: '20px', textAlign: 'left' }}>
-                      <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '6px' }}>Local Server URL</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={backendUrl}
-                        onChange={(e) => setBackendUrl(e.target.value)}
-                        placeholder="http://localhost:5001"
-                        style={{ background: 'rgba(9, 13, 22, 0.6)' }}
-                      />
-                    </div>
-
                     <button
                       type="button"
                       className="btn btn-primary"
