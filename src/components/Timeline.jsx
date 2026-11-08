@@ -50,9 +50,10 @@ export default function Timeline({ cards, onPay, currentDate }) {
             bank: card.bank,
             date: autopayDate,
             type: 'autopay',
-            amount: card.autoPayOption === 'statement_balance' ? card.statementBalance : 35, // mock min payment
+            amount: card.autoPayOption === 'statement_balance' ? card.statementBalance : (card.minPaymentDue || 35),
             status: card.statementStatus === 'scheduled' ? 'scheduled' : 'pending_autopay',
             label: `Auto-Pay Scheduled (${card.autoPaySource})`,
+            autoPayDescription: card.autoPayOption === 'statement_balance' ? 'full balance' : 'minimum payment',
             originalCard: card
           });
         }
@@ -86,8 +87,8 @@ export default function Timeline({ cards, onPay, currentDate }) {
   const filteredEvents = allEvents.filter(event => {
     if (filter === 'all') return true;
     if (filter === 'pending') {
-      // Show close events, unpaid due events, and autopay events
-      return event.status !== 'paid';
+      // Keep the default view focused on money due or scheduled to be paid.
+      return event.type !== 'close' && event.status !== 'paid';
     }
     if (filter === 'paid') {
       return event.status === 'paid';
@@ -132,7 +133,7 @@ export default function Timeline({ cards, onPay, currentDate }) {
       <div className="timeline-header">
         <h2 style={{ fontSize: '1.2rem', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Calendar size={20} style={{ color: 'var(--primary)' }} />
-          Smart Payment Timeline
+          Payment Schedule
         </h2>
         
         <div style={{ display: 'flex', gap: '4px', background: 'rgba(9, 13, 22, 0.4)', padding: '4px', borderRadius: '8px' }}>
@@ -141,7 +142,7 @@ export default function Timeline({ cards, onPay, currentDate }) {
             onClick={() => setFilter('pending')}
             style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: '6px' }}
           >
-            Pending
+            Upcoming
           </button>
           <button 
             className={`btn btn-ghost btn-sm ${filter === 'paid' ? 'btn-primary' : ''}`}
@@ -155,9 +156,13 @@ export default function Timeline({ cards, onPay, currentDate }) {
             onClick={() => setFilter('all')}
             style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: '6px' }}
           >
-            All
+            All events
           </button>
         </div>
+      </div>
+
+      <div style={{ margin: '12px 0', padding: '10px 12px', borderRadius: '8px', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.2)', color: '#cbd5e1', fontSize: '0.78rem' }}>
+        CardFlow tracks due dates here. <strong style={{ color: '#fbbf24' }}>“Mark paid” only updates CardFlow</strong>; it does not send money to your bank or card issuer.
       </div>
 
       <div className="timeline-items">
@@ -192,7 +197,9 @@ export default function Timeline({ cards, onPay, currentDate }) {
                       ({event.bank} •••• {event.originalCard.last4})
                     </span>
                   </div>
-                  <div className="timeline-due-type">{event.label}</div>
+                  <div className="timeline-due-type">
+                    {event.type === 'close' ? 'Statement closes' : event.type === 'autopay' ? `Autopay planned · ${event.autoPayDescription || ''}` : 'Payment due'}
+                  </div>
                 </div>
 
                 {/* Amount block */}
@@ -200,10 +207,10 @@ export default function Timeline({ cards, onPay, currentDate }) {
                   {event.amount > 0 ? (
                     <>
                       <span>${event.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                      <p>{event.type === 'autopay' ? 'estimated' : 'statement bal'}</p>
+                      <p>{event.type === 'autopay' ? 'planned autopay' : 'statement balance due'}</p>
                     </>
                   ) : (
-                    <span style={{ color: '#64748b', fontSize: '0.85rem' }}>Cycle End</span>
+                    <span style={{ color: '#64748b', fontSize: '0.85rem' }}>Statement closes</span>
                   )}
                 </div>
 
@@ -216,7 +223,7 @@ export default function Timeline({ cards, onPay, currentDate }) {
                       onClick={() => onPay(event.cardId)}
                       style={{ padding: '6px 12px', fontSize: '0.75rem' }}
                     >
-                      Pay
+                      Mark paid
                     </button>
                   )}
                 </div>

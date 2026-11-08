@@ -7,6 +7,8 @@ export default function InboxSimulator({ cards, onImportBill, onAddLog }) {
   const [parseResult, setParseResult] = useState(null);
   const [parseError, setParseError] = useState('');
   const [expandedMailId, setExpandedMailId] = useState(null);
+  const [showMailboxSetup, setShowMailboxSetup] = useState(false);
+  const [mailboxProvider, setMailboxProvider] = useState('');
 
   // The app has no email provider integration, so never present fabricated mail as a real inbox.
   const emails = [];
@@ -116,14 +118,14 @@ export default function InboxSimulator({ cards, onImportBill, onAddLog }) {
           Auto-Import Hub
         </h2>
         
-        {/* Toggle Inbox vs manual paste */}
+        {/* Choose an email source or paste a statement */}
         <div style={{ display: 'flex', gap: '4px', background: 'rgba(9, 13, 22, 0.4)', padding: '4px', borderRadius: '8px' }}>
           <button 
             className={`btn btn-ghost btn-sm ${activeTab === 'inbox' ? 'btn-primary' : ''}`}
             onClick={() => setActiveTab('inbox')}
             style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: '6px' }}
           >
-            Email Inbox ({emails.filter(e => e.unread).length})
+            Email Inbox
           </button>
           <button 
             className={`btn btn-ghost btn-sm ${activeTab === 'paste' ? 'btn-primary' : ''}`}
@@ -142,9 +144,37 @@ export default function InboxSimulator({ cards, onImportBill, onAddLog }) {
       {/* Tab Contents: Simulated Email Inbox */}
       {activeTab === 'inbox' && (
         <div className="inbox-list">
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => setShowMailboxSetup(value => !value)}
+            style={{ marginBottom: '12px' }}
+          >
+            {showMailboxSetup ? 'Close mailbox setup' : '＋ Connect email'}
+          </button>
+          {showMailboxSetup && (
+            <div style={{ padding: '14px', marginBottom: '12px', borderRadius: '10px', border: '1px solid rgba(99,102,241,.3)', background: 'rgba(99,102,241,.08)' }}>
+              <strong style={{ color: '#e2e8f0', fontSize: '0.85rem' }}>Choose your email provider</strong>
+              <p style={{ color: '#94a3b8', fontSize: '0.78rem', margin: '6px 0 10px' }}>
+                Mailbox sign-in is not configured for this deployment yet. No email account is connected.
+              </p>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {['Gmail', 'Outlook'].map(provider => (
+                  <button key={provider} type="button" className="btn btn-ghost btn-sm" onClick={() => setMailboxProvider(provider)}>
+                    {provider}
+                  </button>
+                ))}
+              </div>
+              {mailboxProvider && (
+                <p role="status" style={{ color: '#cbd5e1', fontSize: '0.75rem', margin: '10px 0 0' }}>
+                  {mailboxProvider} connection needs provider OAuth setup before sign-in can start.
+                </p>
+              )}
+            </div>
+          )}
           {emails.length === 0 ? (
             <div style={{ padding: '24px 16px', color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center' }}>
-              No emails available. CardFlow does not currently connect to your email account.
+              No mailbox connected. Connect email above or paste a statement to import a bill.
             </div>
           ) : emails.map(email => (
             <div 
