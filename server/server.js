@@ -231,6 +231,39 @@ app.post('/api/sync_accounts', async (req, res) => {
   }
 });
 
+// Incremental transaction feed sync for a linked Plaid Item.
+app.post('/api/sync_transactions', async (req, res) => {
+  const { access_token, cursor } = req.body;
+  if (!access_token) {
+    return res.status(400).json({ error: 'Missing access_token' });
+  }
+
+  try {
+    let nextCursor = cursor || undefined;
+    let hasMore = true;
+    const added = [];
+    const modified = [];
+    const removed = [];
+
+    while (hasMore) {
+      const params = { access_token };
+      if (nextCursor) params.cursor = nextCursor;
+      const response = await plaidClient.transactionsSync(params);
+      added.push(...response.data.added);
+      modified.push(...response.data.modified);
+      removed.push(...response.data.removed);
+      nextCursor = response.data.next_cursor;
+      hasMore = response.data.has_more;
+    }
+
+    res.json({ added, modified, removed, cursor: nextCursor });
+  } catch (error) {
+    const details = error.response?.data || error.message;
+    console.error('Error syncing Plaid transactions:', details);
+    res.status(500).json({ error: details });
+  }
+});
+
 // Serve frontend build in production (Render / Railway)
 import fs from 'fs';
 const distPath = path.join(__dirname, '../dist');

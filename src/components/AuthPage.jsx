@@ -52,9 +52,18 @@ export default function AuthPage({ onLogin, backendUrl = 'http://localhost:5001'
         body: JSON.stringify(payload)
       });
 
-      const data = await res.json();
+      const responseBody = await res.text();
+      let data = {};
+      try {
+        data = responseBody ? JSON.parse(responseBody) : {};
+      } catch {
+        throw new Error('CardFlow returned an unreadable response. Please try again in a moment.');
+      }
 
       if (!res.ok) {
+        if (res.status === 401 && !isSignUp) {
+          throw new Error('That email and password were not recognized. If this is your first time, choose Create Account.');
+        }
         throw new Error(data.error || 'Authentication failed. Please check your credentials.');
       }
 
@@ -63,8 +72,11 @@ export default function AuthPage({ onLogin, backendUrl = 'http://localhost:5001'
     } catch (err) {
       console.error(err);
       if (err.message.includes('Failed to fetch') || err.name === 'TypeError') {
-        setError('Cannot connect to backend server on port 5001. Run "node server.js" in your server terminal, or continue in browser mode below.');
-        setCanOffline(true);
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        setError(isLocal
+          ? 'Cannot reach the local CardFlow server. Start the backend, then try again.'
+          : 'Could not reach CardFlow sign-in. Check your connection and try again.');
+        setCanOffline(isLocal);
       } else {
         setError(err.message || 'Authentication error.');
       }
@@ -137,7 +149,10 @@ export default function AuthPage({ onLogin, backendUrl = 'http://localhost:5001'
             CardFlow
           </h1>
           <p style={{ margin: 0, fontSize: '0.875rem', color: '#94a3b8' }}>
-            {isSignUp ? 'Create your private personal dashboard' : 'Sign in to access your card timeline'}
+            {isSignUp ? 'Create your CardFlow email and password' : 'Sign in with your CardFlow email and password'}
+          </p>
+          <p style={{ margin: '7px 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+            Use the password you created for CardFlow. This is separate from your bank login; CardFlow does not send an email sign-in code.
           </p>
         </div>
 

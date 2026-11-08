@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plus, RefreshCw, AlertTriangle, ShieldAlert, CheckCircle, 
   Calendar, CreditCard as CardIcon, ArrowRight, Activity, Bell, Info,
@@ -8,6 +8,7 @@ import CreditCard from './components/CreditCard';
 import Timeline from './components/Timeline';
 import InboxSimulator from './components/InboxSimulator';
 import CardModal from './components/CardModal';
+import TransactionFeed from './components/TransactionFeed';
 import AuthPage from './components/AuthPage';
 import { API_BASE } from './config';
 
@@ -18,73 +19,6 @@ const addDaysStr = (dateStr, days) => {
   return d.toISOString().split('T')[0];
 };
 
-// Default setup
-const INITIAL_CARDS = [
-  {
-    id: 'card-chase',
-    name: 'Sapphire Reserve',
-    bank: 'Chase',
-    last4: '9012',
-    color: 'linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f172a 100%)',
-    creditLimit: 15000,
-    balance: 850.50,
-    statementClosingDay: 15,
-    gracePeriod: 25, // due on the 10th of next month
-    nextStatementClose: '2026-06-15',
-    nextDueDate: '2026-06-10',
-    autoPayEnabled: true,
-    autoPayOption: 'statement_balance',
-    autoPayDaysBefore: 3, // Pay on June 7th
-    autoPaySource: 'Primary Checking (*4321)',
-    statementBalance: 1245.80, // previous closed cycle balance
-    statementDueDate: '2026-06-10',
-    statementStatus: 'unpaid', // unpaid, scheduled, paid
-    minPaymentDue: 35.00
-  },
-  {
-    id: 'card-amex',
-    name: 'Gold Card',
-    bank: 'Amex',
-    last4: '1005',
-    color: 'linear-gradient(135deg, #d97706 0%, #eab308 50%, #78350f 100%)',
-    creditLimit: 20000,
-    balance: 420.00,
-    statementClosingDay: 18,
-    gracePeriod: 25, // due on 13th of next month
-    nextStatementClose: '2026-06-18',
-    nextDueDate: '2026-06-13',
-    autoPayEnabled: true,
-    autoPayOption: 'statement_balance',
-    autoPayDaysBefore: 2,
-    autoPaySource: 'Primary Checking (*4321)',
-    statementBalance: 685.20,
-    statementDueDate: '2026-06-13',
-    statementStatus: 'unpaid',
-    minPaymentDue: 35.00
-  },
-  {
-    id: 'card-capone',
-    name: 'Venture One',
-    bank: 'Capital One',
-    last4: '5432',
-    color: 'linear-gradient(135deg, #334155 0%, #475569 50%, #991b1b 100%)',
-    creditLimit: 8000,
-    balance: 2450.00,
-    statementClosingDay: 10,
-    gracePeriod: 25,
-    nextStatementClose: '2026-06-10',
-    nextDueDate: '2026-06-05',
-    autoPayEnabled: false,
-    autoPayOption: 'statement_balance',
-    autoPayDaysBefore: 0,
-    autoPaySource: 'None',
-    statementBalance: 0,
-    statementDueDate: '',
-    statementStatus: 'paid',
-    minPaymentDue: 0
-  }
-];
-
 export default function App() {
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('cardflow_auth_token') || '');
   const [currentUser, setCurrentUser] = useState(() => {
@@ -94,15 +28,19 @@ export default function App() {
 
   const [cards, setCards] = useState(() => {
     const saved = localStorage.getItem('cardflow_cards');
-    return saved ? JSON.parse(saved) : INITIAL_CARDS;
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [transactions, setTransactions] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('cardflow_transactions') || '[]'); }
+    catch { return []; }
   });
   const [checkingBalance, setCheckingBalance] = useState(() => {
     const saved = localStorage.getItem('cardflow_checking');
-    return saved ? parseFloat(saved) : 2500.00;
+    return saved ? parseFloat(saved) : 0;
   });
   const [currentDate, setCurrentDate] = useState(() => {
     const saved = localStorage.getItem('cardflow_date');
-    return saved ? saved : '2026-05-19';
+    return saved ? saved : new Date().toISOString().split('T')[0];
   });
   const [logs, setLogs] = useState(() => {
     const saved = localStorage.getItem('cardflow_logs');
@@ -115,6 +53,10 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCard, setEditingCard] = useState(null);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(() => localStorage.getItem('cardflow_auto_sync') !== 'false');
+  const [autoSyncMinutes, setAutoSyncMinutes] = useState(() => Number(localStorage.getItem('cardflow_auto_sync_minutes') || 30));
+  const [lastSyncAt, setLastSyncAt] = useState(() => localStorage.getItem('cardflow_last_sync_at') || '');
+  const syncHandlerRef = useRef(null);
 
   // Fetch individual user data from backend on login or refresh
   const fetchUserData = async (token) => {
@@ -125,6 +67,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         if (data.cards) setCards(data.cards);
+        setTransactions(data.transactions || []);
         if (data.checkingBalance !== undefined) setCheckingBalance(data.checkingBalance);
         if (data.currentDate) setCurrentDate(data.currentDate);
         if (data.logs) setLogs(data.logs);
@@ -162,15 +105,21 @@ export default function App() {
     localStorage.removeItem('cardflow_auth_token');
     localStorage.removeItem('cardflow_user');
     localStorage.removeItem('cardflow_cards');
+    localStorage.removeItem('cardflow_transactions');
     localStorage.removeItem('cardflow_checking');
     localStorage.removeItem('cardflow_logs');
     setCards([]);
+    setTransactions([]);
   };
 
   // Save changes locally and sync back to user account in database
   useEffect(() => {
     localStorage.setItem('cardflow_cards', JSON.stringify(cards));
   }, [cards]);
+
+  useEffect(() => {
+    localStorage.setItem('cardflow_transactions', JSON.stringify(transactions));
+  }, [transactions]);
 
   useEffect(() => {
     localStorage.setItem('cardflow_checking', checkingBalance.toString());
@@ -196,6 +145,7 @@ export default function App() {
         },
         body: JSON.stringify({
           cards,
+          transactions,
           checkingBalance,
           currentDate,
           logs
@@ -203,7 +153,7 @@ export default function App() {
       }).catch(err => console.error('Failed to autosave user data:', err));
     }, 600);
     return () => clearTimeout(timer);
-  }, [cards, checkingBalance, currentDate, logs, authToken, currentUser]);
+  }, [cards, transactions, checkingBalance, currentDate, logs, authToken, currentUser]);
 
   // Buffer Calculation: Find all unpaid statement balances due in the next 10 days
   const getBufferMetrics = () => {
@@ -437,7 +387,11 @@ export default function App() {
   // Delete Card
   const handleDeleteCard = (cardId) => {
     if (window.confirm('Are you sure you want to unlink this credit card?')) {
+      const cardToDelete = cards.find(card => card.id === cardId);
       setCards(prev => prev.filter(c => c.id !== cardId));
+      if (cardToDelete?.plaidAccountId) {
+        setTransactions(prev => prev.filter(transaction => transaction.account_id !== cardToDelete.plaidAccountId));
+      }
       addLog(`Unlinked credit card: ID ${cardId}`, 'warning');
       addToast('Card Removed', 'Credit card was unlinked successfully.', 'warning');
       setIsModalOpen(false);
@@ -445,117 +399,147 @@ export default function App() {
     }
   };
 
-  // Clear All Data
-  const handleClearAllData = () => {
-    if (window.confirm('Wipe out all dummy/demo credit cards and start fresh? This lets you add your own actual accounts.')) {
-      setCards([]);
-      setCheckingBalance(0.00);
-      setCurrentDate(new Date().toISOString().split('T')[0]); // Use actual current local date
-      setLogs([
-        { time: '00:00:00', type: 'info', msg: 'All data cleared. Ready for manual entry.' }
-      ]);
-      addToast('Data Wiped', 'All demo credit cards cleared. You can now add yours!', 'warning');
-    }
-  };
-
-  // Reset to Demo Defaults
-  const handleResetToDemo = () => {
-    if (window.confirm('Reset CardFlow back to the standard sample cards and simulation settings?')) {
-      localStorage.removeItem('cardflow_cards');
-      localStorage.removeItem('cardflow_checking');
-      localStorage.removeItem('cardflow_date');
-      localStorage.removeItem('cardflow_logs');
-      setCards(INITIAL_CARDS);
-      setCheckingBalance(2500.00);
-      setCurrentDate('2026-05-19');
-      setLogs([
-        { time: '17:45:00', type: 'info', msg: 'CardFlow core initialized successfully.' },
-        { time: '17:45:01', type: 'info', msg: 'Checking account buffer linked: $2,500.00 available.' }
-      ]);
-      addToast('System Reset', 'Demo default settings loaded.', 'paid');
-    }
-  };
-
   // Trigger Sync for all accounts
   const handleSyncAll = async () => {
+    if (isSyncingAll) return;
+    const realPlaidCards = cards.filter(card => card.plaidAccessToken && card.plaidAccountId);
+    if (realPlaidCards.length === 0) {
+      addToast('No live bank feeds', 'Link a card using the Plaid connection to refresh its balance.', 'warning');
+      return;
+    }
+
     setIsSyncingAll(true);
-    addLog('Initiating Plaid bank feed synchronization for all cards...', 'info');
+    addLog('Syncing linked Plaid balances and transactions...', 'info');
     
     try {
-      // Find all cards linked via real Plaid
-      const realPlaidCards = cards.filter(card => card.plaidAccessToken);
       const syncedDataMap = {};
+      const transactionSyncMap = {};
+      const failedBanks = [];
+      const failedTransactionBanks = [];
+      const tokenCards = new Map();
+      realPlaidCards.forEach(card => {
+        if (!tokenCards.has(card.plaidAccessToken)) tokenCards.set(card.plaidAccessToken, card);
+      });
 
-      // Fetch latest updates for each unique access token
-      for (const card of realPlaidCards) {
-        const token = card.plaidAccessToken;
-        if (!syncedDataMap[token]) {
-          try {
-            const res = await fetch(`${API_BASE}/api/sync_accounts`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ access_token: token })
-            });
-            if (res.ok) {
-              const data = await res.json();
-              syncedDataMap[token] = data;
-            }
-          } catch (syncErr) {
-            console.error(`Failed to sync token for ${card.bank}:`, syncErr);
-          }
+      for (const [token, card] of tokenCards) {
+        try {
+          const res = await fetch(`${API_BASE}/api/sync_accounts`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ access_token: token })
+          });
+          if (!res.ok) throw new Error(`Bank balance check failed (${res.status})`);
+          syncedDataMap[token] = await res.json();
+        } catch (syncErr) {
+          console.error(`Failed to sync balance for ${card.bank}:`, syncErr);
+          failedBanks.push(card.bank);
+        }
+
+        try {
+          const transactionRes = await fetch(`${API_BASE}/api/sync_transactions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              access_token: token,
+              cursor: card.plaidTransactionsCursor || undefined
+            })
+          });
+          if (!transactionRes.ok) throw new Error(`Transaction sync failed (${transactionRes.status})`);
+          transactionSyncMap[token] = await transactionRes.json();
+        } catch (syncErr) {
+          console.error(`Failed to sync transactions for ${card.bank}:`, syncErr);
+          failedTransactionBanks.push(card.bank);
         }
       }
 
+      const updatedCount = realPlaidCards.filter(card => (
+        syncedDataMap[card.plaidAccessToken]?.accounts?.some(account => account.id === card.plaidAccountId)
+      )).length;
+      if (updatedCount === 0 && Object.keys(transactionSyncMap).length === 0) {
+        throw new Error(failedBanks.length ? `Could not refresh ${[...new Set(failedBanks)].join(', ')}.` : 'Plaid did not return any of the linked card accounts.');
+      }
+
+      const allowedAccountIds = new Set(realPlaidCards.map(card => card.plaidAccountId));
+      const transactionChanges = Object.values(transactionSyncMap).reduce((changes, result) => ({
+        added: [...changes.added, ...(result.added || [])],
+        modified: [...changes.modified, ...(result.modified || [])],
+        removed: [...changes.removed, ...(result.removed || [])]
+      }), { added: [], modified: [], removed: [] });
+      transactionChanges.added = transactionChanges.added.filter(transaction => allowedAccountIds.has(transaction.account_id));
+      transactionChanges.modified = transactionChanges.modified.filter(transaction => allowedAccountIds.has(transaction.account_id));
+      setTransactions(prev => {
+        const byId = new Map(prev.map(transaction => [transaction.transaction_id, transaction]));
+        transactionChanges.removed.forEach(transaction => byId.delete(transaction.transaction_id));
+        transactionChanges.modified.forEach(transaction => byId.set(transaction.transaction_id, transaction));
+        transactionChanges.added.forEach(transaction => byId.set(transaction.transaction_id, transaction));
+        return [...byId.values()].sort((a, b) => new Date(b.date) - new Date(a.date));
+      });
+
       setCards(prev => prev.map(card => {
-        // If it is a real Plaid card and we have synced data for it
+        const transactionSync = transactionSyncMap[card.plaidAccessToken];
+        const cardWithCursor = transactionSync?.cursor
+          ? { ...card, plaidTransactionsCursor: transactionSync.cursor }
+          : card;
         if (card.plaidAccessToken && syncedDataMap[card.plaidAccessToken]) {
           const syncInfo = syncedDataMap[card.plaidAccessToken];
           const matchedAcc = syncInfo.accounts.find(a => a.id === card.plaidAccountId);
           if (matchedAcc) {
-            addLog(`[PLAID SYNC] Successfully updated ${card.bank} ${card.name} balance to $${matchedAcc.balance} from live feed.`, 'info');
             return {
-              ...card,
+              ...cardWithCursor,
               balance: matchedAcc.balance,
               creditLimit: matchedAcc.limit || card.creditLimit
             };
           }
         }
 
-        // Otherwise (or if fallback), run simulated cycle timing updates
-        const closeDate = new Date(card.nextStatementClose);
-        const currDate = new Date(currentDate);
-        
-        if (currDate >= closeDate && card.statementBalance === 0) {
-          const generatedBalance = parseFloat((Math.random() * 800 + 200).toFixed(2));
-          
-          addLog(`[AUTO-SYNC] Detected closed billing cycle for ${card.bank} ${card.name}. Statement Balance: $${generatedBalance}`, 'warning');
-          
-          const nextClose = new Date(card.nextStatementClose);
-          nextClose.setMonth(nextClose.getMonth() + 1);
-          
-          const nextDue = new Date(nextClose);
-          nextDue.setDate(nextDue.getDate() - (card.gracePeriod || 25));
-
-          return {
-            ...card,
-            statementBalance: generatedBalance,
-            statementDueDate: card.nextStatementClose,
-            statementStatus: card.autoPayEnabled ? 'scheduled' : 'unpaid',
-            nextStatementClose: nextClose.toISOString().split('T')[0],
-            balance: 0
-          };
-        }
-        return card;
+        return cardWithCursor;
       }));
 
-      addToast('Sync Success', 'Successfully synchronized balances for all linked banks.', 'paid');
+      const syncedAt = new Date().toISOString();
+      setLastSyncAt(syncedAt);
+      localStorage.setItem('cardflow_last_sync_at', syncedAt);
+      addLog(`Synced Plaid data: ${updatedCount} card balance${updatedCount === 1 ? '' : 's'}, ${transactionChanges.added.length} new transaction${transactionChanges.added.length === 1 ? '' : 's'}.`, 'success');
+      const syncWarnings = [...new Set([...failedBanks, ...failedTransactionBanks])];
+      addToast('Sync complete', `${updatedCount} balance${updatedCount === 1 ? '' : 's'} checked; ${transactionChanges.added.length} new transaction${transactionChanges.added.length === 1 ? '' : 's'} found${syncWarnings.length ? `; could not fully sync ${syncWarnings.join(', ')}` : ''}. Plaid data may be delayed.`, syncWarnings.length ? 'warning' : 'paid');
     } catch (err) {
       console.error(err);
-      addToast('Sync Error', 'Failed to synchronize Plaid bank feeds.', 'unpaid');
+      addLog(`Plaid refresh failed: ${err.message}`, 'danger');
+      addToast('Sync failed', err.message || 'Could not refresh bank balances. Try again or reconnect the bank.', 'unpaid');
     } finally {
       setIsSyncingAll(false);
     }
   };
+
+  useEffect(() => {
+    syncHandlerRef.current = handleSyncAll;
+  }, [handleSyncAll]);
+  const linkedFeedSignature = cards
+    .filter(card => card.plaidAccessToken && card.plaidAccountId)
+    .map(card => `${card.plaidAccessToken}:${card.plaidAccountId}`)
+    .sort()
+    .join('|');
+
+  useEffect(() => {
+    localStorage.setItem('cardflow_auto_sync', String(autoSyncEnabled));
+    localStorage.setItem('cardflow_auto_sync_minutes', String(autoSyncMinutes));
+  }, [autoSyncEnabled, autoSyncMinutes]);
+
+  useEffect(() => {
+    if (!autoSyncEnabled || !linkedFeedSignature) return undefined;
+
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible') syncHandlerRef.current?.();
+    };
+    const interval = window.setInterval(refreshIfVisible, autoSyncMinutes * 60 * 1000);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+    const initialRefresh = window.setTimeout(refreshIfVisible, 1200);
+
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(initialRefresh);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
+    };
+  }, [autoSyncEnabled, autoSyncMinutes, linkedFeedSignature]);
 
   // Time Travel: Fast-forward time to simulate statement closings & automatic payments
   const handleTimeTravel = (daysToForward) => {
@@ -715,22 +699,14 @@ export default function App() {
             </button>
           </div>
 
-          <button 
-            className="btn btn-ghost btn-sm"
-            onClick={handleResetToDemo}
-            title="Load the standard demo set"
-            style={{ fontSize: '0.75rem' }}
+          <button
+            className="btn btn-ghost"
+            onClick={handleSyncAll}
+            disabled={isSyncingAll}
+            title="Check Plaid for the latest linked bank balances"
           >
-            Load Demo
-          </button>
-
-          <button 
-            className="btn btn-ghost btn-sm"
-            onClick={handleClearAllData}
-            title="Remove demo data to add your own card accounts"
-            style={{ fontSize: '0.75rem', color: '#fca5a5' }}
-          >
-            Clear Data
+            <RefreshCw size={16} className={isSyncingAll ? 'sync-active' : ''} />
+            {isSyncingAll ? 'Syncing…' : 'Sync now'}
           </button>
 
           <button 
@@ -859,15 +835,30 @@ export default function App() {
           <div className="glass-panel">
             <div className="section-header">
               <h2><CardIcon size={20} style={{ color: 'var(--primary)' }} /> Linked Credit Cards</h2>
-              <button 
-                className="btn btn-ghost btn-sm" 
-                onClick={handleSyncAll}
-                disabled={isSyncingAll}
-              >
-                <RefreshCw size={14} className={isSyncingAll ? 'sync-active' : ''} /> 
-                {isSyncingAll ? 'Connecting feeds...' : 'Sync Feeds'}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: '#cbd5e1' }}>
+                  <input type="checkbox" checked={autoSyncEnabled} onChange={e => setAutoSyncEnabled(e.target.checked)} />
+                  Auto-sync
+                </label>
+                <select
+                  aria-label="Automatic bank sync interval"
+                  value={autoSyncMinutes}
+                  onChange={e => setAutoSyncMinutes(Number(e.target.value))}
+                  disabled={!autoSyncEnabled}
+                  style={{ background: '#111827', color: '#e2e8f0', border: '1px solid rgba(255,255,255,.15)', borderRadius: '6px', padding: '5px 7px', fontSize: '0.75rem' }}
+                >
+                  <option value={15}>Every 15 min</option>
+                  <option value={30}>Every 30 min</option>
+                  <option value={60}>Every hour</option>
+                </select>
+                <span style={{ color: '#64748b', fontSize: '0.68rem' }}>
+                  {lastSyncAt ? `Last check ${new Date(lastSyncAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'Not checked yet'}
+                </span>
+              </div>
             </div>
+            <p style={{ margin: '-4px 0 8px', color: '#64748b', fontSize: '0.72rem' }}>
+              Checks Plaid balances while CardFlow is open. Plaid may return cached data, which can lag behind your bank; this does not import transactions or statements.
+            </p>
 
             {cards.length === 0 ? (
               <div style={{
@@ -890,13 +881,6 @@ export default function App() {
                     style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   >
                     <Plus size={16} /> Link Your First Card
-                  </button>
-                  <button
-                    className="btn btn-ghost"
-                    onClick={handleResetToDemo}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
-                  >
-                    Load Sample Cards
                   </button>
                 </div>
               </div>
@@ -936,6 +920,8 @@ export default function App() {
             onImportBill={handleImportBill}
             onAddLog={addLog}
           />
+
+          <TransactionFeed transactions={transactions} cards={cards} />
 
           {/* Device Sync & Backup Manager */}
           <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '16px' }}>

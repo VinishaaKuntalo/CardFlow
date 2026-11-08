@@ -7,31 +7,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_FILE = path.join(__dirname, 'data', 'cardflow_db.json');
 
-// Initial default cards for newly registered users so they see an intuitive starter dashboard
-const DEFAULT_USER_CARDS = [
-  {
-    id: 'starter-1',
-    name: 'Sample Rewards Card',
-    bank: 'Chase',
-    last4: '4321',
-    color: 'linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f172a 100%)',
-    creditLimit: 10000,
-    balance: 450.00,
-    statementClosingDay: 15,
-    gracePeriod: 25,
-    nextStatementClose: new Date().toISOString().split('T')[0],
-    nextDueDate: new Date(Date.now() + 25 * 86400000).toISOString().split('T')[0],
-    autoPayEnabled: true,
-    autoPayOption: 'statement_balance',
-    autoPayDaysBefore: 3,
-    autoPaySource: 'Primary Checking (*1111)',
-    statementBalance: 450.00,
-    statementDueDate: new Date(Date.now() + 25 * 86400000).toISOString().split('T')[0],
-    statementStatus: 'unpaid',
-    minPaymentDue: 35.00
-  }
-];
-
 function initDB() {
   if (!fs.existsSync(DB_FILE)) {
     const initialData = {
@@ -100,8 +75,9 @@ export function registerUser(name, email, password) {
 
   // Initialize individual user's data store
   db.userData[userId] = {
-    cards: DEFAULT_USER_CARDS,
-    checkingBalance: 2500.00,
+    cards: [],
+    transactions: [],
+    checkingBalance: 0,
     currentDate: new Date().toISOString().split('T')[0],
     logs: [
       { time: new Date().toLocaleTimeString(), type: 'info', msg: `Welcome to CardFlow, ${name}!` }
