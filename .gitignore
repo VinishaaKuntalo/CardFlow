@@ -11,6 +11,8 @@ node_modules
 dist
 server/node_modules
 server/.env
+server/data/*.json
+server/data/*.tmp
 dist-ssr
 *.local
 

@@ -12,7 +12,9 @@ import {
   logoutUser,
   getUserData,
   saveUserData,
-  getAllUsersWithData
+  getAllUsersWithData,
+  initializeDatabase,
+  getStorageMode
 } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -28,6 +30,10 @@ app.use(express.json({ verify: (req, res, buffer) => { req.rawBody = buffer; } }
 const rawPort = process.env.PORT;
 const PORT = (rawPort && rawPort != 5000 && rawPort != '5000') ? rawPort : 5001;
 
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', storage: getStorageMode() });
+});
+
 // Auth Middleware
 const requireAuth = (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -35,17 +41,18 @@ const requireAuth = (req, res, next) => {
     return res.status(401).json({ error: 'Unauthorized: missing token' });
   }
   const token = authHeader.split(' ')[1];
-  const user = getUserByToken(token);
-  if (!user) {
-    return res.status(401).json({ error: 'Unauthorized: session expired or invalid' });
-  }
-  req.user = user;
-  req.token = token;
-  next();
+  getUserByToken(token)
+    .then(user => {
+      if (!user) return res.status(401).json({ error: 'Unauthorized: session expired or invalid' });
+      req.user = user;
+      req.token = token;
+      next();
+    })
+    .catch(next);
 };
 
 // --- AUTH ENDPOINTS ---
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   try {
     const { name, email, password } = req.body;
     if (!name || !email || !password) {
@@ -54,20 +61,20 @@ app.post('/api/auth/register', (req, res) => {
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
     }
-    const result = registerUser(name, email, password);
+    const result = await registerUser(name, email, password);
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required.' });
     }
-    const result = loginUser(email, password);
+    const result = await loginUser(email, password);
     res.json(result);
   } catch (err) {
     res.status(401).json({ error: err.message });
@@ -78,20 +85,30 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
 
-app.post('/api/auth/logout', requireAuth, (req, res) => {
-  logoutUser(req.token);
-  res.json({ success: true });
+app.post('/api/auth/logout', requireAuth, async (req, res) => {
+  try {
+    await logoutUser(req.token);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Could not end session.' });
+  }
 });
 
 // --- USER ISOLATED DATA ENDPOINTS ---
-app.get('/api/user/data', requireAuth, (req, res) => {
-  const data = getUserData(req.user.id);
-  res.json(data);
+app.get('/api/user/data', requireAuth, async (req, res) => {
+  try {
+    res.json(await getUserData(req.user.id));
+  } catch (error) {
+    res.status(500).json({ error: 'Could not load account data.' });
+  }
 });
 
-app.post('/api/user/data', requireAuth, (req, res) => {
-  const updated = saveUserData(req.user.id, req.body);
-  res.json(updated);
+app.post('/api/user/data', requireAuth, async (req, res) => {
+  try {
+    res.json(await saveUserData(req.user.id, req.body));
+  } catch (error) {
+    res.status(500).json({ error: 'Could not save account data.' });
+  }
 });
 
 const whatsappConfig = {
@@ -126,7 +143,7 @@ app.get('/api/whatsapp/webhook', (req, res) => {
   res.sendStatus(403);
 });
 
-app.post('/api/whatsapp/webhook', (req, res) => {
+app.post('/api/whatsapp/webhook', async (req, res) => {
   const signature = req.get('x-hub-signature-256') || '';
   const expected = `sha256=${crypto.createHmac('sha256', whatsappConfig.metaAppSecret).update(req.rawBody || '').digest('hex')}`;
   const actualBuffer = Buffer.from(signature);
@@ -144,10 +161,10 @@ app.post('/api/whatsapp/webhook', (req, res) => {
     .filter(Boolean));
 
   if (phoneNumbersToDisable.size) {
-    for (const user of getAllUsersWithData()) {
+    for (const user of await getAllUsersWithData()) {
       const currentPhone = String(user.data.whatsappReminders?.phoneNumber || '').replace(/\D/g, '');
       if (currentPhone && phoneNumbersToDisable.has(currentPhone)) {
-        saveUserData(user.id, {
+        await saveUserData(user.id, {
           whatsappReminders: { ...user.data.whatsappReminders, enabled: false, optedIn: false }
         });
       }
@@ -209,7 +226,7 @@ app.post('/api/jobs/whatsapp-reminders', async (req, res) => {
   let skipped = 0;
   const failures = [];
 
-  for (const user of getAllUsersWithData()) {
+  for (const user of await getAllUsersWithData()) {
     const prefs = user.data.whatsappReminders || {};
     if (!prefs.enabled || !prefs.optedIn || !prefs.phoneNumber) continue;
     const sentKeys = new Set(user.data.whatsappReminderSent || []);
@@ -234,7 +251,7 @@ app.post('/api/jobs/whatsapp-reminders', async (req, res) => {
       }
     }
 
-    if (changed) saveUserData(user.id, { whatsappReminderSent: [...sentKeys] });
+    if (changed) await saveUserData(user.id, { whatsappReminderSent: [...sentKeys] });
   }
 
   res.json({ sent, skipped, failures });
@@ -428,6 +445,8 @@ app.get('*', (req, res, next) => {
     next();
   }
 });
+
+await initializeDatabase();
 
 app.listen(PORT, () => {
   console.log(`CardFlow Backend running on port ${PORT} in ${plaidEnv} mode`);

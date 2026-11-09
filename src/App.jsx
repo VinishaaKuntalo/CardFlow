@@ -58,7 +58,15 @@ export default function App() {
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(() => localStorage.getItem('cardflow_auto_sync') !== 'false');
   const [autoSyncMinutes, setAutoSyncMinutes] = useState(() => Number(localStorage.getItem('cardflow_auto_sync_minutes') || 30));
   const [lastSyncAt, setLastSyncAt] = useState(() => localStorage.getItem('cardflow_last_sync_at') || '');
+  const [storageMode, setStorageMode] = useState('checking');
   const syncHandlerRef = useRef(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/health`)
+      .then(response => response.ok ? response.json() : Promise.reject(new Error('Storage status unavailable')))
+      .then(data => setStorageMode(data.storage || 'unknown'))
+      .catch(() => setStorageMode('unavailable'));
+  }, []);
 
   // Fetch individual user data from backend on login or refresh
   const fetchUserData = async (token) => {
@@ -792,6 +800,12 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {storageMode === 'local-json' && (
+        <div role="status" style={{ margin: '0 0 14px', padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(245,158,11,.35)', background: 'rgba(245,158,11,.08)', color: '#fde68a', fontSize: '0.8rem' }}>
+          Server storage is temporary. Cards may not stay available across devices or service restarts. Configure a durable database to protect account sync.
+        </div>
+      )}
 
       {/* Checking Balance & Buffer Warning Banner */}
       <div className={`buffer-guard ${
