@@ -20,15 +20,29 @@ const addDaysStr = (dateStr, days) => {
   return d.toISOString().split('T')[0];
 };
 
-const hasLegacyPlaidScheduleEstimate = (card) => {
-  if (!card.plaidAccountId || card.lastStatementIssueDate || Number(card.statementClosingDay) !== 15 || Number(card.gracePeriod) !== 21) {
+const hasLegacyGeneratedSchedule = (card) => {
+  if (card.lastStatementIssueDate || Number(card.statementClosingDay) !== 15 || Number(card.gracePeriod) !== 21) {
     return false;
   }
   if (!card.nextStatementClose || !card.statementDueDate) return false;
   const closeDate = new Date(`${card.nextStatementClose}T00:00:00Z`);
   const dueDate = new Date(`${card.statementDueDate}T00:00:00Z`);
   const dayDifference = (dueDate.getTime() - closeDate.getTime()) / 86400000;
-  return dayDifference === 21 && Number(card.statementBalance) === Number(card.balance);
+  return Number.isFinite(dayDifference) && dayDifference === 21 && closeDate.getUTCDate() === 15;
+};
+
+const clearLegacyGeneratedSchedule = (card) => {
+  if (!hasLegacyGeneratedSchedule(card)) return card;
+  return {
+    ...card,
+    statementDueDate: '',
+    nextDueDate: '',
+    nextStatementClose: '',
+    statementBalance: 0,
+    minPaymentDue: 0,
+    statementStatus: 'unknown',
+    billingDetailsNeedRefresh: true
+  };
 };
 
 export default function App() {
@@ -40,7 +54,12 @@ export default function App() {
 
   const [cards, setCards] = useState(() => {
     const saved = localStorage.getItem('cardflow_cards');
-    return saved ? JSON.parse(saved) : [];
+    if (!saved) return [];
+    try {
+      return JSON.parse(saved).map(clearLegacyGeneratedSchedule);
+    } catch {
+      return [];
+    }
   });
   const [transactions, setTransactions] = useState(() => {
     try { return JSON.parse(localStorage.getItem('cardflow_transactions') || '[]'); }
@@ -87,7 +106,7 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.cards) setCards(data.cards);
+        if (data.cards) setCards(data.cards.map(clearLegacyGeneratedSchedule));
         setTransactions(data.transactions || []);
         setWhatsappReminders(data.whatsappReminders || { phoneNumber: '', optedIn: false, enabled: false });
         if (data.checkingBalance !== undefined) setCheckingBalance(data.checkingBalance);
@@ -540,7 +559,7 @@ export default function App() {
               ? Number(matchedAcc.lastStatementBalance)
               : card.statementBalance;
             const liabilitiesRecordFound = Boolean(matchedAcc.liabilitiesAccountFound);
-            const clearLegacyEstimate = !liabilitiesRecordFound && hasLegacyPlaidScheduleEstimate(card);
+            const clearLegacyEstimate = !liabilitiesRecordFound && hasLegacyGeneratedSchedule(card);
             return {
               ...cardWithCursor,
               balance: matchedAcc.balance,

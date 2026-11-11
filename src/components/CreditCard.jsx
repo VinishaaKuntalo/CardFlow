@@ -129,10 +129,16 @@ export default function CreditCard({ card, onPay, onEdit, onSync, currentDate })
           <div className="card-date-item" style={{ textAlign: 'right' }}>
             <span className="card-date-label">Payment Due</span>
             <span className={`card-date-value ${isOverdue() ? 'danger' : isUrgent() ? 'warning' : ''}`}>
-              {statementDueDate ? formatDate(statementDueDate) : (card.plaidAccountId ? 'Unavailable' : 'No Bill Yet')}
+              {statementDueDate ? formatDate(statementDueDate) : (card.plaidAccountId || card.billingDetailsNeedRefresh ? 'Unavailable' : 'No Bill Yet')}
             </span>
           </div>
         </div>
+
+        {(!card.plaidAccessToken || !card.plaidAccountId) && (
+          <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '8px' }}>
+            {card.dataSource === 'simulated' ? 'Demo data · no live bank feed' : 'Manual entry · no live bank feed'}
+          </div>
+        )}
 
         {/* Statement Details Banner */}
         {statementBalance > 0 && (
