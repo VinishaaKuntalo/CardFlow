@@ -387,7 +387,7 @@ app.post('/api/sync_accounts', async (req, res) => {
         subtype: acc.subtype,
         mask: acc.mask,
         balance: acc.balances.current,
-        limit: acc.balances.limit || 0,
+        limit: acc.balances.limit,
       }))
     });
   } catch (error) {

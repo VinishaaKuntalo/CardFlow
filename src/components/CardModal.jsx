@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, Shield, Landmark, Loader2, Sparkles, Server, AlertTriangle } from 'lucide-react';
+import { X, Check, Landmark, Loader2, Sparkles, Server, AlertTriangle } from 'lucide-react';
 import { usePlaidLink } from 'react-plaid-link';
 import { API_BASE } from '../config';
 
@@ -272,7 +272,7 @@ const MOCK_PLAID_CARDS = {
 
 export default function CardModal({ card, onClose, onSave, onDelete }) {
   const [linkMode, setLinkMode] = useState('plaid'); // 'plaid' | 'manual'
-  const [useRealPlaid, setUseRealPlaid] = useState(false);
+  const [useRealPlaid, setUseRealPlaid] = useState(true);
   const [linkToken, setLinkToken] = useState(null);
   const [plaidAccessToken, setPlaidAccessToken] = useState('');
   const [plaidError, setPlaidError] = useState(null);
@@ -285,10 +285,11 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
     name: '',
     bank: '',
     last4: '',
-    creditLimit: 5000,
+    creditLimit: '',
     balance: 0,
-    statementClosingDay: 15,
-    gracePeriod: 25,
+    statementClosingDay: '',
+    gracePeriod: '',
+    statementDueDate: '',
     autoPayEnabled: false,
     autoPayOption: 'statement_balance',
     autoPayDaysBefore: 3,
@@ -373,19 +374,8 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
           const subtype = (acc.subtype || '').toLowerCase();
           const name = (acc.name || '').toLowerCase();
           const off = (acc.officialName || '').toLowerCase();
-          return (
-            type === 'credit' ||
-            subtype.includes('credit') ||
-            subtype.includes('card') ||
-            name.includes('visa') ||
-            name.includes('mastercard') ||
-            name.includes('amex') ||
-            name.includes('card') ||
-            off.includes('visa') ||
-            off.includes('mastercard') ||
-            off.includes('amex') ||
-            off.includes('card')
-          );
+          if (type !== 'credit') return false;
+          return subtype.includes('card') || /visa|mastercard|amex|american express|credit card/.test(`${name} ${off}`);
         };
 
         const rawCards = (syncData.accounts || []).filter(isCreditOrCard);
@@ -414,10 +404,13 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
             name: acc.officialName || acc.name,
             bank: bankName,
             last4: acc.mask || 'XXXX',
-            creditLimit: parseFloat(acc.limit) || 5000,
+            creditLimit: Number.isFinite(Number(acc.limit)) && Number(acc.limit) > 0 ? Number(acc.limit) : null,
             balance: parseFloat(acc.balance) || 0,
-            statementClosingDay: 15,
-            gracePeriod: 21,
+            statementClosingDay: null,
+            gracePeriod: null,
+            statementDueDate: '',
+            statementBalance: 0,
+            dataSource: 'plaid',
             autoPayEnabled: false,
             autoPayOption: 'statement_balance',
             autoPayDaysBefore: 3,
@@ -475,6 +468,7 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
       // Inject random last 4 digits for realistic display
       const processedCards = cards.map(c => ({
         ...c,
+        dataSource: 'simulated',
         last4: Math.floor(1000 + Math.random() * 9000).toString(),
         tempId: `${bank.id}-${Math.random()}`
       }));
@@ -533,10 +527,11 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
 
     onSave({
       ...formData,
-      creditLimit: parseFloat(formData.creditLimit) || 0,
+      creditLimit: Number.isFinite(Number(formData.creditLimit)) && Number(formData.creditLimit) > 0 ? Number(formData.creditLimit) : null,
       balance: parseFloat(formData.balance) || 0,
-      statementClosingDay: parseInt(formData.statementClosingDay) || 1,
-      gracePeriod: parseInt(formData.gracePeriod) || 21,
+      statementClosingDay: formData.statementClosingDay ? parseInt(formData.statementClosingDay) : null,
+      gracePeriod: formData.gracePeriod ? parseInt(formData.gracePeriod) : null,
+      statementDueDate: formData.statementDueDate || '',
       autoPayDaysBefore: parseInt(formData.autoPayDaysBefore) || 0
     });
     
@@ -605,7 +600,7 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
                     cursor: 'pointer'
                   }}
                 >
-                  Simulated
+                  Demo only
                 </button>
                 <button
                   type="button"
@@ -637,8 +632,8 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
                 {!useRealPlaid ? (
                   <>
                     <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Shield size={14} color="#34d399" />
-                      Select your bank to connect and download your card parameters automatically.
+                      <AlertTriangle size={14} color="#fbbf24" />
+                      Demo accounts use sample balances, limits, and dates. They do not connect to a bank or sync.
                     </p>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', maxHeight: '380px', overflowY: 'auto', paddingRight: '4px' }}>
@@ -767,13 +762,13 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
                         <div>
                           <strong style={{ fontSize: '0.85rem', color: '#fff' }}>{c.name}</strong>
                           <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'block' }}>
-                            Card ending in •••• {c.last4} | Limit: ${c.creditLimit.toLocaleString()}
+                            Card ending in •••• {c.last4} | Limit: {Number(c.creditLimit) > 0 ? `$${Number(c.creditLimit).toLocaleString()}` : 'Not provided'}
                           </span>
                         </div>
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Cycle Ends</span>
-                        <strong style={{ display: 'block', fontSize: '0.8rem', color: '#f1f5f9' }}>Day {c.statementClosingDay}</strong>
+                        <strong style={{ display: 'block', fontSize: '0.8rem', color: '#f1f5f9' }}>Not provided by bank</strong>
                       </div>
                     </div>
                   ))}
@@ -845,10 +840,10 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
                   name="creditLimit" 
                   className="form-control" 
                   min="0"
-                  value={formData.creditLimit}
+                  value={formData.creditLimit ?? ''}
                   onChange={handleChange}
-                  required
                 />
+                <small style={{ color: '#94a3b8' }}>Leave blank if your bank connection did not return the limit.</small>
               </div>
             </div>
 
@@ -897,6 +892,20 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
               </div>
             </div>
 
+            <div className="form-row">
+              <div className="form-group">
+                <label>Next Payment Due Date</label>
+                <input
+                  type="date"
+                  name="statementDueDate"
+                  className="form-control"
+                  value={formData.statementDueDate || ''}
+                  onChange={handleChange}
+                />
+                {formData.plaidAccountId && <small style={{ color: '#94a3b8' }}>Plaid does not provide billing due dates. Use your latest statement.</small>}
+              </div>
+            </div>
+
             {/* Statement and Grace Period */}
             <div className="form-row">
               <div className="form-group">
@@ -904,9 +913,10 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
                 <select 
                   name="statementClosingDay" 
                   className="form-control" 
-                  value={formData.statementClosingDay}
+                  value={formData.statementClosingDay ?? ''}
                   onChange={handleChange}
                 >
+                  <option value="">Unknown</option>
                   {Array.from({ length: 28 }, (_, i) => i + 1).map(day => (
                     <option key={day} value={day}>Day {day} of the month</option>
                   ))}
@@ -917,9 +927,10 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
                 <select 
                   name="gracePeriod" 
                   className="form-control" 
-                  value={formData.gracePeriod}
+                  value={formData.gracePeriod ?? ''}
                   onChange={handleChange}
                 >
+                  <option value="">Unknown</option>
                   <option value="21">21 Days (Standard)</option>
                   <option value="25">25 Days (Standard)</option>
                   <option value="28">28 Days</option>

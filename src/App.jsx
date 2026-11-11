@@ -307,29 +307,37 @@ export default function App() {
     } else {
       // Create new cards
       const newCards = cardList.map(cardData => {
-        let closeDate = new Date(currentDate);
-        closeDate.setDate(cardData.statementClosingDay || 15);
-        if (closeDate < new Date(currentDate)) {
-          closeDate.setMonth(closeDate.getMonth() + 1);
+        const isPlaidAccount = Boolean(cardData.plaidAccountId);
+        let closeDateStr = '';
+        let calculatedDueDate = '';
+        const closingDay = Number(cardData.statementClosingDay);
+        const gracePeriod = Number(cardData.gracePeriod);
+        if (!isPlaidAccount && Number.isInteger(closingDay) && closingDay >= 1 && closingDay <= 28) {
+          const closeDate = new Date(`${currentDate}T12:00:00`);
+          closeDate.setDate(closingDay);
+          if (closeDate < new Date(`${currentDate}T00:00:00`)) closeDate.setMonth(closeDate.getMonth() + 1);
+          closeDateStr = closeDate.toISOString().split('T')[0];
+          if (Number.isFinite(gracePeriod) && gracePeriod > 0) {
+            const dueDate = new Date(closeDate);
+            dueDate.setDate(dueDate.getDate() + gracePeriod);
+            calculatedDueDate = dueDate.toISOString().split('T')[0];
+          }
         }
-        const closeDateStr = closeDate.toISOString().split('T')[0];
-
-        const dueDate = new Date(closeDate);
-        dueDate.setDate(dueDate.getDate() + (cardData.gracePeriod || 21));
-        const dueDateStr = dueDate.toISOString().split('T')[0];
+        const dueDateStr = cardData.statementDueDate || calculatedDueDate;
 
         const hasBalance = (parseFloat(cardData.balance) || 0) > 0;
         const balVal = parseFloat(cardData.balance) || 0;
+        const knownCreditLimit = Number(cardData.creditLimit);
 
         return {
           ...cardData,
           id: cardData.id || `card-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
           balance: balVal,
-          creditLimit: parseFloat(cardData.creditLimit) || 5000,
-          statementBalance: hasBalance ? balVal : 0,
+          creditLimit: Number.isFinite(knownCreditLimit) && knownCreditLimit > 0 ? knownCreditLimit : null,
+          statementBalance: isPlaidAccount ? 0 : (hasBalance && dueDateStr ? balVal : 0),
           statementDueDate: hasBalance ? dueDateStr : '',
-          statementStatus: hasBalance ? (cardData.autoPayEnabled ? 'scheduled' : 'unpaid') : 'paid',
-          minPaymentDue: hasBalance ? Math.max(35, Math.round(balVal * 0.03)) : 0,
+          statementStatus: hasBalance && dueDateStr ? (cardData.autoPayEnabled ? 'scheduled' : 'unpaid') : 'unknown',
+          minPaymentDue: hasBalance && dueDateStr ? Math.max(35, Math.round(balVal * 0.03)) : 0,
           nextStatementClose: closeDateStr,
           nextDueDate: dueDateStr
         };
@@ -501,7 +509,7 @@ export default function App() {
             return {
               ...cardWithCursor,
               balance: matchedAcc.balance,
-              creditLimit: matchedAcc.limit || card.creditLimit
+              creditLimit: Number(matchedAcc.limit) > 0 ? Number(matchedAcc.limit) : card.creditLimit
             };
           }
         }

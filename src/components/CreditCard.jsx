@@ -10,7 +10,8 @@ export default function CreditCard({ card, onPay, onEdit, onSync, currentDate })
   } = card;
 
   // Calculate utilization rate
-  const utilization = Math.min(Math.round((balance / creditLimit) * 100), 100);
+  const hasCreditLimit = Number.isFinite(Number(creditLimit)) && Number(creditLimit) > 0;
+  const utilization = hasCreditLimit ? Math.min(Math.round((Number(balance || 0) / Number(creditLimit)) * 100), 100) : null;
   
   // Get utilization bar color class
   const getUtilColorClass = (util) => {
@@ -108,13 +109,13 @@ export default function CreditCard({ card, onPay, onEdit, onSync, currentDate })
         {/* Utilization progress bar */}
         <div>
           <div className="card-stats">
-            <span>Utilization: {utilization}%</span>
-            <span>Limit: ${creditLimit.toLocaleString()}</span>
+            <span>Utilization: {utilization === null ? '—' : `${utilization}%`}</span>
+            <span>Limit: {hasCreditLimit ? `$${Number(creditLimit).toLocaleString()}` : 'Not provided'}</span>
           </div>
           <div className="card-utilization-bar">
             <div 
-              className={`card-utilization-fill ${getUtilColorClass(utilization)}`} 
-              style={{ width: `${utilization}%` }}
+              className={`card-utilization-fill ${utilization === null ? '' : getUtilColorClass(utilization)}`}
+              style={{ width: `${utilization ?? 0}%` }}
             ></div>
           </div>
         </div>
@@ -132,6 +133,12 @@ export default function CreditCard({ card, onPay, onEdit, onSync, currentDate })
             </span>
           </div>
         </div>
+
+        {card.plaidAccountId && (
+          <div style={{ fontSize: '0.75rem', color: '#fbbf24', marginTop: '8px' }}>
+            Confirm the limit and payment due date with your bank. Plaid balance sync does not provide statement due dates.
+          </div>
+        )}
 
         {/* Statement Details Banner */}
         {statementBalance > 0 && (
