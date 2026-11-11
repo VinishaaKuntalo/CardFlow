@@ -123,8 +123,8 @@ export default function CreditCard({ card, onPay, onEdit, onSync, currentDate })
         {/* Dynamic Billing Status info */}
         <div className="card-date-row">
           <div className="card-date-item">
-            <span className="card-date-label">{card.plaidAccountId ? 'Last Statement' : 'Statement Close'}</span>
-            <span className="card-date-value">{formatDate(card.plaidAccountId ? (card.lastStatementIssueDate || nextStatementClose) : nextStatementClose)}</span>
+            <span className="card-date-label">{card.lastStatementIssueDate ? 'Last Statement' : 'Statement Close'}</span>
+            <span className="card-date-value">{formatDate(card.lastStatementIssueDate || nextStatementClose)}</span>
           </div>
           <div className="card-date-item" style={{ textAlign: 'right' }}>
             <span className="card-date-label">Payment Due</span>

@@ -20,6 +20,17 @@ const addDaysStr = (dateStr, days) => {
   return d.toISOString().split('T')[0];
 };
 
+const hasLegacyPlaidScheduleEstimate = (card) => {
+  if (!card.plaidAccountId || card.lastStatementIssueDate || Number(card.statementClosingDay) !== 15 || Number(card.gracePeriod) !== 21) {
+    return false;
+  }
+  if (!card.nextStatementClose || !card.statementDueDate) return false;
+  const closeDate = new Date(`${card.nextStatementClose}T00:00:00Z`);
+  const dueDate = new Date(`${card.statementDueDate}T00:00:00Z`);
+  const dayDifference = (dueDate.getTime() - closeDate.getTime()) / 86400000;
+  return dayDifference === 21 && Number(card.statementBalance) === Number(card.balance);
+};
+
 export default function App() {
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('cardflow_auth_token') || '');
   const [currentUser, setCurrentUser] = useState(() => {
@@ -529,16 +540,18 @@ export default function App() {
               ? Number(matchedAcc.lastStatementBalance)
               : card.statementBalance;
             const liabilitiesRecordFound = Boolean(matchedAcc.liabilitiesAccountFound);
+            const clearLegacyEstimate = !liabilitiesRecordFound && hasLegacyPlaidScheduleEstimate(card);
             return {
               ...cardWithCursor,
               balance: matchedAcc.balance,
               creditLimit: Number(matchedAcc.limit) > 0 ? Number(matchedAcc.limit) : card.creditLimit,
-              statementDueDate: liabilitiesRecordFound ? (matchedAcc.nextPaymentDueDate || '') : card.statementDueDate,
-              nextDueDate: liabilitiesRecordFound ? (matchedAcc.nextPaymentDueDate || '') : card.nextDueDate,
-              statementBalance: liabilitiesRecordFound ? (matchedAcc.lastStatementBalance == null ? 0 : statementBalance) : card.statementBalance,
-              minPaymentDue: liabilitiesRecordFound ? (matchedAcc.minimumPaymentAmount == null ? 0 : Number(matchedAcc.minimumPaymentAmount)) : card.minPaymentDue,
-              lastStatementIssueDate: liabilitiesRecordFound ? (matchedAcc.lastStatementIssueDate || '') : card.lastStatementIssueDate,
-              nextStatementClose: liabilitiesRecordFound ? (matchedAcc.lastStatementIssueDate || '') : card.nextStatementClose,
+              statementDueDate: liabilitiesRecordFound ? (matchedAcc.nextPaymentDueDate || '') : clearLegacyEstimate ? '' : card.statementDueDate,
+              nextDueDate: liabilitiesRecordFound ? (matchedAcc.nextPaymentDueDate || '') : clearLegacyEstimate ? '' : card.nextDueDate,
+              statementBalance: liabilitiesRecordFound ? (matchedAcc.lastStatementBalance == null ? 0 : statementBalance) : clearLegacyEstimate ? 0 : card.statementBalance,
+              minPaymentDue: liabilitiesRecordFound ? (matchedAcc.minimumPaymentAmount == null ? 0 : Number(matchedAcc.minimumPaymentAmount)) : clearLegacyEstimate ? 0 : card.minPaymentDue,
+              statementStatus: clearLegacyEstimate ? 'unknown' : card.statementStatus,
+              lastStatementIssueDate: liabilitiesRecordFound ? (matchedAcc.lastStatementIssueDate || '') : clearLegacyEstimate ? '' : card.lastStatementIssueDate,
+              nextStatementClose: liabilitiesRecordFound ? (matchedAcc.lastStatementIssueDate || '') : clearLegacyEstimate ? '' : card.nextStatementClose,
               liabilitiesAvailable: Boolean(syncInfo.liabilitiesAvailable),
               liabilitiesSyncResult: syncInfo.liabilitiesAvailable && liabilitiesRecordFound ? 'available' : 'unavailable'
             };
