@@ -21,11 +21,15 @@ const addDaysStr = (dateStr, days) => {
 };
 
 const hasLegacyGeneratedSchedule = (card) => {
-  if (card.lastStatementIssueDate || Number(card.statementClosingDay) !== 15 || Number(card.gracePeriod) !== 21) {
-    return false;
+  if (card.lastStatementIssueDate || card.liabilitiesSyncResult === 'available') return false;
+  const isLegacyPlaidRecord = Boolean(card.plaidAccountId) && !card.dataSource;
+  if (isLegacyPlaidRecord) {
+    return Boolean(card.nextStatementClose || card.statementDueDate || Number(card.statementBalance) > 0);
   }
-  if (!card.nextStatementClose || !card.statementDueDate) return false;
+  if (card.dataSource || Number(card.statementClosingDay) !== 15 || Number(card.gracePeriod) !== 21) return false;
+  if (!card.nextStatementClose) return false;
   const closeDate = new Date(`${card.nextStatementClose}T00:00:00Z`);
+  if (!card.statementDueDate) return Number.isFinite(closeDate.getTime()) && closeDate.getUTCDate() === 15;
   const dueDate = new Date(`${card.statementDueDate}T00:00:00Z`);
   const dayDifference = (dueDate.getTime() - closeDate.getTime()) / 86400000;
   return Number.isFinite(dayDifference) && dayDifference === 21 && closeDate.getUTCDate() === 15;
@@ -562,6 +566,7 @@ export default function App() {
             const clearLegacyEstimate = !liabilitiesRecordFound && hasLegacyGeneratedSchedule(card);
             return {
               ...cardWithCursor,
+              dataSource: 'plaid',
               balance: matchedAcc.balance,
               creditLimit: Number(matchedAcc.limit) > 0 ? Number(matchedAcc.limit) : card.creditLimit,
               statementDueDate: liabilitiesRecordFound ? (matchedAcc.nextPaymentDueDate || '') : clearLegacyEstimate ? '' : card.statementDueDate,
