@@ -280,6 +280,7 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
   const [selectedBank, setSelectedBank] = useState(null);
   const [availableCards, setAvailableCards] = useState([]);
   const [selectedPlaidCards, setSelectedPlaidCards] = useState({});
+  const [upgradingLiabilities, setUpgradingLiabilities] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -323,6 +324,7 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
   // Fetch Link Token from local backend when toggled or modal opens
   const fetchLinkToken = async () => {
     setPlaidError(null);
+    setUpgradingLiabilities(false);
     setPlaidStep('connecting');
     try {
       const res = await fetch(`${API_BASE}/api/create_link_token`, {
@@ -342,12 +344,66 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
     }
   };
 
+  const requestLiabilitiesUpdate = async () => {
+    if (!card?.plaidAccessToken) return;
+    setPlaidError(null);
+    setUpgradingLiabilities(true);
+    setPlaidStep('connecting');
+    try {
+      const response = await fetch(`${API_BASE}/api/create_liabilities_update_link_token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: card.plaidAccessToken })
+      });
+      if (!response.ok) throw new Error('Could not prepare the Plaid permission update.');
+      const data = await response.json();
+      setLinkToken(data.link_token);
+      setPlaidStep('launch_plaid');
+    } catch (error) {
+      setUpgradingLiabilities(false);
+      setPlaidStep('select_bank');
+      setPlaidError(error.message || 'Could not request statement data from Plaid.');
+    }
+  };
+
   const { open: openPlaid, ready: plaidReady } = usePlaidLink({
     token: linkToken,
     onSuccess: async (publicToken, metadata) => {
       setPlaidStep('connecting');
       setPlaidError(null);
       try {
+        if (upgradingLiabilities && card?.plaidAccessToken) {
+          const syncResponse = await fetch(`${API_BASE}/api/sync_accounts`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ access_token: card.plaidAccessToken })
+          });
+          if (!syncResponse.ok) throw new Error('Plaid permission was updated, but account data could not be refreshed.');
+          const syncData = await syncResponse.json();
+          const account = (syncData.accounts || []).find(item => item.id === card.plaidAccountId);
+          if (!account) throw new Error('Plaid no longer returned this card account.');
+          const amount = Number(account.lastStatementBalance);
+          const minimum = Number(account.minimumPaymentAmount);
+          const refreshedCard = {
+            ...card,
+            dataSource: 'plaid',
+            liabilitiesAvailable: Boolean(syncData.liabilitiesAvailable),
+            balance: Number.isFinite(Number(account.balance)) ? Number(account.balance) : card.balance,
+            creditLimit: Number(account.limit) > 0 ? Number(account.limit) : card.creditLimit,
+            statementDueDate: account.nextPaymentDueDate || '',
+            nextDueDate: account.nextPaymentDueDate || '',
+            statementBalance: Number.isFinite(amount) ? amount : 0,
+            minPaymentDue: Number.isFinite(minimum) ? minimum : 0,
+            lastStatementIssueDate: account.lastStatementIssueDate || '',
+            nextStatementClose: account.lastStatementIssueDate || '',
+            statementStatus: account.nextPaymentDueDate && amount > 0 ? 'unpaid' : 'unknown',
+            liabilitiesSyncResult: syncData.liabilitiesAvailable && account.liabilitiesAccountFound ? 'available' : 'unavailable'
+          };
+          onSave(refreshedCard);
+          onClose();
+          return;
+        }
+
         // 1. Exchange public token
         const exchangeRes = await fetch(`${API_BASE}/api/exchange_public_token`, {
           method: 'POST',
@@ -408,8 +464,15 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
             balance: parseFloat(acc.balance) || 0,
             statementClosingDay: null,
             gracePeriod: null,
-            statementDueDate: '',
-            statementBalance: 0,
+            statementDueDate: acc.nextPaymentDueDate || '',
+            statementBalance: Number.isFinite(Number(acc.lastStatementBalance)) ? Number(acc.lastStatementBalance) : 0,
+            minPaymentDue: Number.isFinite(Number(acc.minimumPaymentAmount)) ? Number(acc.minimumPaymentAmount) : 0,
+            lastStatementIssueDate: acc.lastStatementIssueDate || '',
+            nextStatementClose: acc.lastStatementIssueDate || '',
+            nextDueDate: acc.nextPaymentDueDate || '',
+            statementStatus: acc.nextPaymentDueDate && Number(acc.lastStatementBalance) > 0 ? 'unpaid' : 'unknown',
+            liabilitiesAvailable: Boolean(syncData.liabilitiesAvailable),
+            liabilitiesSyncResult: syncData.liabilitiesAvailable && acc.liabilitiesAccountFound ? 'available' : 'unavailable',
             dataSource: 'plaid',
             autoPayEnabled: false,
             autoPayOption: 'statement_balance',
@@ -432,6 +495,7 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
         }
       } catch (err) {
         console.error(err);
+        setUpgradingLiabilities(false);
         setPlaidError('Failed to retrieve account details after Plaid login.');
         setPlaidStep('select_bank');
       }
@@ -446,6 +510,7 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
         console.log('User exited Plaid Link at step:', metadata.status);
       }
       setPlaidStep('select_bank');
+      setUpgradingLiabilities(false);
     }
   });
 
@@ -790,6 +855,11 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
         {/* MANUAL FORM EDITOR (and edit screen) */}
         {linkMode === 'manual' && (
           <form onSubmit={handleSubmitManual}>
+            {plaidError && (
+              <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '8px', padding: '10px 12px', marginBottom: '16px', color: '#fca5a5', fontSize: '0.8rem' }}>
+                {plaidError}
+              </div>
+            )}
             {/* Card Name and Bank */}
             <div className="form-row">
               <div className="form-group">
@@ -902,9 +972,17 @@ export default function CardModal({ card, onClose, onSave, onDelete }) {
                   value={formData.statementDueDate || ''}
                   onChange={handleChange}
                 />
-                {formData.plaidAccountId && <small style={{ color: '#94a3b8' }}>Plaid does not provide billing due dates. Use your latest statement.</small>}
               </div>
             </div>
+
+            {card?.plaidAccessToken && card?.plaidAccountId && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', margin: '4px 0 14px' }}>
+                <small style={{ color: '#94a3b8' }}>Refresh payment details from your bank through Plaid.</small>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={requestLiabilitiesUpdate}>
+                  Refresh bank details
+                </button>
+              </div>
+            )}
 
             {/* Statement and Grace Period */}
             <div className="form-row">

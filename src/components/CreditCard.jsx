@@ -123,22 +123,16 @@ export default function CreditCard({ card, onPay, onEdit, onSync, currentDate })
         {/* Dynamic Billing Status info */}
         <div className="card-date-row">
           <div className="card-date-item">
-            <span className="card-date-label">Statement Close</span>
-            <span className="card-date-value">{formatDate(nextStatementClose)}</span>
+            <span className="card-date-label">{card.plaidAccountId ? 'Last Statement' : 'Statement Close'}</span>
+            <span className="card-date-value">{formatDate(card.plaidAccountId ? (card.lastStatementIssueDate || nextStatementClose) : nextStatementClose)}</span>
           </div>
           <div className="card-date-item" style={{ textAlign: 'right' }}>
             <span className="card-date-label">Payment Due</span>
             <span className={`card-date-value ${isOverdue() ? 'danger' : isUrgent() ? 'warning' : ''}`}>
-              {statementDueDate ? formatDate(statementDueDate) : 'No Bill Yet'}
+              {statementDueDate ? formatDate(statementDueDate) : (card.plaidAccountId ? 'Unavailable' : 'No Bill Yet')}
             </span>
           </div>
         </div>
-
-        {card.plaidAccountId && (
-          <div style={{ fontSize: '0.75rem', color: '#fbbf24', marginTop: '8px' }}>
-            Confirm the limit and payment due date with your bank. Plaid balance sync does not provide statement due dates.
-          </div>
-        )}
 
         {/* Statement Details Banner */}
         {statementBalance > 0 && (

@@ -303,7 +303,13 @@ export default function App() {
       // Edit single card
       setCards(prev => prev.map(c => c.id === editingCard.id ? cardDataOrArray : c));
       addLog(`Updated card configuration for ${cardDataOrArray.bank} ${cardDataOrArray.name}.`, 'info');
-      addToast('Card Saved', `Updated configuration for ${cardDataOrArray.name}.`, 'info');
+      if (cardDataOrArray.liabilitiesSyncResult === 'available') {
+        addToast('Bank details refreshed', `Plaid returned statement details for ${cardDataOrArray.name}.`, 'paid');
+      } else if (cardDataOrArray.liabilitiesSyncResult === 'unavailable') {
+        addToast('Statement details not returned', `Plaid did not provide statement details for ${cardDataOrArray.name}.`, 'info');
+      } else {
+        addToast('Card Saved', `Updated configuration for ${cardDataOrArray.name}.`, 'info');
+      }
     } else {
       // Create new cards
       const newCards = cardList.map(cardData => {
@@ -328,17 +334,22 @@ export default function App() {
         const hasBalance = (parseFloat(cardData.balance) || 0) > 0;
         const balVal = parseFloat(cardData.balance) || 0;
         const knownCreditLimit = Number(cardData.creditLimit);
+        const suppliedStatementBalance = Number(cardData.statementBalance);
+        const statementBalance = isPlaidAccount
+          ? (Number.isFinite(suppliedStatementBalance) ? suppliedStatementBalance : 0)
+          : (hasBalance && dueDateStr ? balVal : 0);
 
         return {
           ...cardData,
           id: cardData.id || `card-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
           balance: balVal,
           creditLimit: Number.isFinite(knownCreditLimit) && knownCreditLimit > 0 ? knownCreditLimit : null,
-          statementBalance: isPlaidAccount ? 0 : (hasBalance && dueDateStr ? balVal : 0),
-          statementDueDate: hasBalance ? dueDateStr : '',
-          statementStatus: hasBalance && dueDateStr ? (cardData.autoPayEnabled ? 'scheduled' : 'unpaid') : 'unknown',
-          minPaymentDue: hasBalance && dueDateStr ? Math.max(35, Math.round(balVal * 0.03)) : 0,
-          nextStatementClose: closeDateStr,
+          statementBalance,
+          statementDueDate: isPlaidAccount ? (cardData.statementDueDate || '') : (hasBalance ? dueDateStr : ''),
+          statementStatus: statementBalance > 0 && dueDateStr ? (cardData.autoPayEnabled ? 'scheduled' : 'unpaid') : 'unknown',
+          minPaymentDue: isPlaidAccount ? (Number(cardData.minPaymentDue) || 0) : (statementBalance > 0 ? Math.max(35, Math.round(balVal * 0.03)) : 0),
+          lastStatementIssueDate: cardData.lastStatementIssueDate || '',
+          nextStatementClose: isPlaidAccount ? (cardData.lastStatementIssueDate || '') : closeDateStr,
           nextDueDate: dueDateStr
         };
       });
@@ -347,7 +358,12 @@ export default function App() {
       newCards.forEach(c => {
         addLog(`Linked new credit card: ${c.bank} ${c.name} ending in ${c.last4}`, 'success');
       });
-      addToast('Cards Added', `Successfully linked ${newCards.length} card${newCards.length > 1 ? 's' : ''}!`, 'paid');
+      const missingPlaidDetails = newCards.filter(card => card.plaidAccountId && card.liabilitiesSyncResult !== 'available').length;
+      addToast(
+        'Cards Added',
+        `Successfully linked ${newCards.length} card${newCards.length > 1 ? 's' : ''}.${missingPlaidDetails ? ` Statement details were unavailable for ${missingPlaidDetails} card${missingPlaidDetails > 1 ? 's' : ''}.` : ''}`,
+        missingPlaidDetails ? 'info' : 'paid'
+      );
     }
     setIsModalOpen(false);
     setEditingCard(null);
@@ -477,6 +493,9 @@ export default function App() {
       const updatedCount = realPlaidCards.filter(card => (
         syncedDataMap[card.plaidAccessToken]?.accounts?.some(account => account.id === card.plaidAccountId)
       )).length;
+      const liabilityDetailsCount = realPlaidCards.filter(card => (
+        syncedDataMap[card.plaidAccessToken]?.accounts?.some(account => account.id === card.plaidAccountId && account.liabilitiesAccountFound)
+      )).length;
       if (updatedCount === 0 && Object.keys(transactionSyncMap).length === 0) {
         throw new Error(failedBanks.length ? `Could not refresh ${[...new Set(failedBanks)].join(', ')}.` : 'Plaid did not return any of the linked card accounts.');
       }
@@ -506,10 +525,22 @@ export default function App() {
           const syncInfo = syncedDataMap[card.plaidAccessToken];
           const matchedAcc = syncInfo.accounts.find(a => a.id === card.plaidAccountId);
           if (matchedAcc) {
+            const statementBalance = matchedAcc.lastStatementBalance != null
+              ? Number(matchedAcc.lastStatementBalance)
+              : card.statementBalance;
+            const liabilitiesRecordFound = Boolean(matchedAcc.liabilitiesAccountFound);
             return {
               ...cardWithCursor,
               balance: matchedAcc.balance,
-              creditLimit: Number(matchedAcc.limit) > 0 ? Number(matchedAcc.limit) : card.creditLimit
+              creditLimit: Number(matchedAcc.limit) > 0 ? Number(matchedAcc.limit) : card.creditLimit,
+              statementDueDate: liabilitiesRecordFound ? (matchedAcc.nextPaymentDueDate || '') : card.statementDueDate,
+              nextDueDate: liabilitiesRecordFound ? (matchedAcc.nextPaymentDueDate || '') : card.nextDueDate,
+              statementBalance: liabilitiesRecordFound ? (matchedAcc.lastStatementBalance == null ? 0 : statementBalance) : card.statementBalance,
+              minPaymentDue: liabilitiesRecordFound ? (matchedAcc.minimumPaymentAmount == null ? 0 : Number(matchedAcc.minimumPaymentAmount)) : card.minPaymentDue,
+              lastStatementIssueDate: liabilitiesRecordFound ? (matchedAcc.lastStatementIssueDate || '') : card.lastStatementIssueDate,
+              nextStatementClose: liabilitiesRecordFound ? (matchedAcc.lastStatementIssueDate || '') : card.nextStatementClose,
+              liabilitiesAvailable: Boolean(syncInfo.liabilitiesAvailable),
+              liabilitiesSyncResult: syncInfo.liabilitiesAvailable && liabilitiesRecordFound ? 'available' : 'unavailable'
             };
           }
         }
@@ -522,7 +553,7 @@ export default function App() {
       localStorage.setItem('cardflow_last_sync_at', syncedAt);
       addLog(`Synced Plaid data: ${updatedCount} card balance${updatedCount === 1 ? '' : 's'}, ${transactionChanges.added.length} new transaction${transactionChanges.added.length === 1 ? '' : 's'}.`, 'success');
       const syncWarnings = [...new Set([...failedBanks, ...failedTransactionBanks])];
-      addToast('Sync complete', `${updatedCount} balance${updatedCount === 1 ? '' : 's'} checked; ${transactionChanges.added.length} new transaction${transactionChanges.added.length === 1 ? '' : 's'} found${syncWarnings.length ? `; could not fully sync ${syncWarnings.join(', ')}` : ''}. Plaid data may be delayed.`, syncWarnings.length ? 'warning' : 'paid');
+      addToast('Sync complete', `${updatedCount} balance${updatedCount === 1 ? '' : 's'} checked; statement details returned for ${liabilityDetailsCount} of ${realPlaidCards.length} cards; ${transactionChanges.added.length} new transaction${transactionChanges.added.length === 1 ? '' : 's'} found${syncWarnings.length ? `; could not fully sync ${syncWarnings.join(', ')}` : ''}. Plaid data may be delayed.`, syncWarnings.length ? 'warning' : 'paid');
     } catch (err) {
       console.error(err);
       addLog(`Plaid refresh failed: ${err.message}`, 'danger');

@@ -300,12 +300,13 @@ app.post('/api/create_link_token', async (req, res) => {
       const response = await plaidClient.linkTokenCreate({
         ...tokenParams,
         products: ['transactions'],
+        optional_products: ['liabilities'],
       });
       return res.json(response.data);
     } catch (prodErr) {
       if (prodErr.response?.data?.error_code === 'INVALID_PRODUCT') {
         console.warn('Retrying linkTokenCreate without explicit products...');
-        const fallbackRes = await plaidClient.linkTokenCreate(tokenParams);
+        const fallbackRes = await plaidClient.linkTokenCreate({ ...tokenParams, products: ['transactions'] });
         return res.json(fallbackRes.data);
       }
       throw prodErr;
@@ -314,6 +315,29 @@ app.post('/api/create_link_token', async (req, res) => {
     const errorDetails = error.response?.data || error.message;
     console.error('Error creating link token:', errorDetails);
     res.status(500).json({ error: errorDetails });
+  }
+});
+
+// Update an existing Plaid Item to request consent for statement/liability data.
+app.post('/api/create_liabilities_update_link_token', async (req, res) => {
+  const { access_token } = req.body;
+  if (!access_token) return res.status(400).json({ error: 'Missing access_token' });
+  try {
+    const response = await plaidClient.linkTokenCreate({
+      client_id: clientId,
+      secret,
+      user: { client_user_id: 'cardflow_user_id' },
+      client_name: 'CardFlow',
+      country_codes: ['CA', 'US'],
+      language: 'en',
+      access_token,
+      additional_consented_products: ['liabilities'],
+    });
+    res.json(response.data);
+  } catch (error) {
+    const details = error.response?.data || error.message;
+    console.error('Could not create Plaid liabilities update link token:', details);
+    res.status(500).json({ error: details });
   }
 });
 
@@ -362,6 +386,22 @@ app.post('/api/sync_accounts', async (req, res) => {
     const accounts = accountsResponse.data.accounts;
     const item = accountsResponse.data.item;
 
+    let liabilitiesAvailable = false;
+    const liabilitiesByAccountId = new Map();
+    try {
+      const liabilitiesResponse = await plaidClient.liabilitiesGet({
+        client_id: clientId,
+        secret,
+        access_token,
+      });
+      liabilitiesAvailable = true;
+      for (const liability of liabilitiesResponse.data.liabilities?.credit || []) {
+        if (liability.account_id) liabilitiesByAccountId.set(liability.account_id, liability);
+      }
+    } catch (liabilitiesError) {
+      console.warn('Plaid liabilities are unavailable for this Item:', liabilitiesError.response?.data?.error_code || liabilitiesError.message);
+    }
+
     // 2. Fetch details about the institution (bank name)
     let institutionName = 'Linked Bank';
     if (item.institution_id) {
@@ -379,16 +419,25 @@ app.post('/api/sync_accounts', async (req, res) => {
     console.log(`Plaid API: Found ${accounts.length} accounts at ${institutionName}.`);
     res.json({
       institution: institutionName,
-      accounts: accounts.map(acc => ({
-        id: acc.account_id,
-        name: acc.name,
-        officialName: acc.official_name || acc.name,
-        type: acc.type,
-        subtype: acc.subtype,
-        mask: acc.mask,
-        balance: acc.balances.current,
-        limit: acc.balances.limit,
-      }))
+      liabilitiesAvailable,
+      accounts: accounts.map(acc => {
+        const liability = liabilitiesByAccountId.get(acc.account_id);
+        return {
+          id: acc.account_id,
+          name: acc.name,
+          officialName: acc.official_name || acc.name,
+          type: acc.type,
+          subtype: acc.subtype,
+          mask: acc.mask,
+          balance: acc.balances.current,
+          limit: liability?.credit_limit ?? acc.balances.limit,
+          liabilitiesAccountFound: Boolean(liability),
+          nextPaymentDueDate: liability?.next_payment_due_date ?? null,
+          lastStatementBalance: liability?.last_statement_balance ?? null,
+          minimumPaymentAmount: liability?.minimum_payment_amount ?? null,
+          lastStatementIssueDate: liability?.last_statement_issue_date ?? null,
+        };
+      })
     });
   } catch (error) {
     console.error('Error syncing accounts:', error.response?.data || error.message);
